@@ -13,9 +13,9 @@ The exported files from literature databases were loaded into R environment usin
 The RStudio workspace after this step was uploaded in this repository for reproducibility.
 
 ### R code
-The analysis was performed by running the files in the following order.
-Each file saves the current RStudio workspace at the end, and the next file loads the 
-Because the original data files are not provided, the code works only after running from the file **2. cleaning**.
+The analysis was performed by running the files in the following order.  
+Each file saves the current RStudio workspace at the end, and the next file loads the generated workspace in the beginning for subsequent analysis.
+Because the original data files are not provided, the code works only after running from the file **2. cleaning** using the desposited workspace.
 
 **1. import**: importing files exported from using bibiliometrix   
 **2. cleaning**: data cleaning for each dataset from the literature database  
