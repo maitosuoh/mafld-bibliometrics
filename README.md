@@ -17,13 +17,13 @@ The whole analysis was
 Each file saves the RStudio workspace at the end of the 
 
 **1. import**: importing data into  from  
-**2. cleaning**: data cleaning for each 
-**3. merge**: merging datasets and visualisation of flow chart for literature selection (Fig 1)
-**4. journal**: analysis of publication counts and journals(Fig 2)
-**5. country**: author country analysis and country co-occurence network analysis (Fig 7, 8)
-**6. keyword**: author keyword analysis and keyword co-occurence network analysis (Figure 3)
-**7. citation**: extracting reference information from records of Web of Science and Scopus
-**8. co-citation**: citation analysis (Fig 4) and co-citation network analysis (Fig 5, 6)
+**2. cleaning**: data cleaning for each  
+**3. merge**: merging datasets and visualisation of flow chart for literature selection (Fig 1)  
+**4. journal**: analysis of publication counts and journals(Fig 2)  
+**5. country**: author country analysis and country co-occurence network analysis (Fig 7, 8)  
+**6. keyword**: author keyword analysis and keyword co-occurence network analysis (Figure 3)  
+**7. citation**: extracting reference information from records of Web of Science and Scopus  
+**8. co-citation**: citation analysis (Fig 4) and co-citation network analysis (Fig 5, 6)  
 
 ## Acknowledgements
 The authors acknowledge the developers and maintainers of the packages used in this study.  
