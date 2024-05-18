@@ -26,6 +26,6 @@ Each file saves the RStudio workspace at the end of the
 8. co-citation: citation analysis (Fig 4) and co-citation network analysis (Fig 5, 6)
 
 ## Acknowledgements
-The authors acknowledge the developers and maintainers of the packages used in this study.
-Hierarchial edge bundling was implemented by adopting the code in The R Graph Gallery (https://r-graph-gallery.com/hierarchical-edge-bundling.html)
+The authors acknowledge the developers and maintainers of the packages used in this study.  
+Hierarchial edge bundling was implemented by adopting the code in The R Graph Gallery (https://r-graph-gallery.com/hierarchical-edge-bundling.html)  
 The full list of R packages for data analysis and visualisation is described in the supplementary material of the paper.
