@@ -5,8 +5,8 @@ This paper is submitted to a journal and currently under review.
 
 ## Contents
 ### Data Source
-The literature records were downloaded from PubMed, Web of Science, and Scopus using queries for MAFLD.
-These original files were not deposited in this repository due to potential copyright infringement from these databases.
+The literature records were downloaded from PubMed, Web of Science, and Scopus using queries for MAFLD.  
+These original files were not deposited in this repository due to potential copyright infringement against these databases.
 
 ### R environment
 The exported files from literature databases were loaded into R environment using bibliometrix (https://www.bibliometrix.org/home/).  
