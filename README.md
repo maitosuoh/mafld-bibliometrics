@@ -8,16 +8,17 @@ This paper is submitted to a journal and currently under review.
 The literature records were downloaded from PubMed, Web of Science, and Scopus using queries for MAFLD.
 These original files were not deposited in this repository due to potential copyright infringement from these databases.
 
-### Environment
+### R environment
 The exported files from literature databases were loaded into R environment using bibliometrix (https://www.bibliometrix.org/home/).  
-The RStudio workspace after loading those files were uploaded in this repository.
+The RStudio workspace after this step were uploaded in this repository for reproducibility.
 
 ### R code
-The whole analysis was 
-Each file saves the RStudio workspace at the end of the 
+The analysis was performed by running the files in the following order.
+Each file saves the current RStudio workspace at the end, and the next file loads the 
+Because the original data files are not provided, the code works only after running from the file **2. cleaning**.
 
-**1. import**: importing data into  from  
-**2. cleaning**: data cleaning for each  
+**1. import**: importing files exported from using bibiliometrix   
+**2. cleaning**: data cleaning for each dataset from the literature database  
 **3. merge**: merging datasets and visualisation of flow chart for literature selection (Fig 1)  
 **4. journal**: analysis of publication counts and journals(Fig 2)  
 **5. country**: author country analysis and country co-occurence network analysis (Fig 7, 8)  
