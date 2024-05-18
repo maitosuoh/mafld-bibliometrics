@@ -16,7 +16,7 @@ The RStudio workspace after loading those files were uploaded in this repository
 The whole analysis was 
 Each file saves the RStudio workspace at the end of the 
 
-1. import: importing data into  from 
+**1. import**: importing data into  from 
 2. cleaning: data cleaning for each 
 3. merge: merging datasets and visualisation of flow chart for literature selection (Fig 1)
 4. journal: analysis of publication counts and journals(Fig 2)
