@@ -9,8 +9,8 @@ The literature records were downloaded from PubMed, Web of Science, and Scopus u
 These original files were not deposited in this repository due to potential copyright infringement from these databases.
 
 ### Environment
-The 
-However, the RStudio workspace after loading those files were 
+The exported files from literature databases were loaded into R environment using bibliometrix (https://www.bibliometrix.org/home/).  
+The RStudio workspace after loading those files were uploaded in this repository.
 
 ### R code
 The whole analysis was 
@@ -26,6 +26,6 @@ Each file saves the RStudio workspace at the end of the
 8. co-citation: citation analysis (Fig 4) and co-citation network analysis (Fig 5, 6)
 
 ## Acknowledgements
-The data analysis and visualisation was heavily dependent on the  
-Hierarchial edge bundling was  (https://r-graph-gallery.com/hierarchical-edge-bundling.html)
-The full list of packages are described in the supplementary material of the paper.
+The authors acknowledge the developers and maintainers of the packages used in this study.
+Hierarchial edge bundling was implemented by adopting the code in The R Graph Gallery (https://r-graph-gallery.com/hierarchical-edge-bundling.html)
+The full list of R packages for data analysis and visualisation is described in the supplementary material of the paper.
