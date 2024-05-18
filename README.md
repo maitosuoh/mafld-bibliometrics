@@ -14,7 +14,7 @@ The RStudio workspace after this step was uploaded in this repository for reprod
 
 ### R code
 The analysis was performed by running the files in the following order.  
-Each file saves the current RStudio workspace at the end, and the next file loads the generated workspace in the beginning for subsequent analysis.
+Each file saves the current RStudio workspace at the end, and the next file loads the generated workspace in the beginning.  
 Because the original data files are not provided, the code works only after running from the file **2. cleaning** using the desposited workspace.
 
 **1. import**: importing files exported from using bibiliometrix   
