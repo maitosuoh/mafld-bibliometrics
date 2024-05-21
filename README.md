@@ -1,5 +1,5 @@
 # Bibliometric analysis of MAFLD literature
-This repository contains the code used for the bibliometric analysis of metabolic (dysfunction)-associated fatty liver disease (MAFLD).  
+This repository contains the R code used for the bibliometric analysis of metabolic (dysfunction)-associated fatty liver disease (MAFLD).  
 The goal of this study is to provide an overview of the research in MAFLD from 2020 to late 2023 using publication metrics.  
 The manuscript is submitted to a journal and currently under review.
 
@@ -13,9 +13,7 @@ The exported files from literature databases were loaded into R environment usin
 The RStudio workspace after this step was uploaded in this repository for reproducibility.
 
 ### R code
-The analysis was performed by running the files in the following order.  
-Each file saves the current RStudio workspace at the end, and the next file loads the generated workspace in the beginning.  
-Because the original data files are not provided, the code works only after running from the file **2. cleaning** using the desposited workspace.
+The analysis was performed by running the R codes in the following order with R Studio.
 
 **1. import**: importing files exported from using bibiliometrix   
 **2. cleaning**: data cleaning for each dataset from the literature database  
@@ -25,6 +23,15 @@ Because the original data files are not provided, the code works only after runn
 **6. keyword**: author keyword analysis and keyword co-occurence network analysis (Figure 3)  
 **7. citation**: extracting reference information from records of Web of Science and Scopus  
 **8. co-citation**: citation analysis (Fig 4) and co-citation network analysis (Fig 5, 6)  
+
+### How to use
+Download and place the R workspace and all R code files from 2. cleaning in your working directory.
+Open 2. cleaning with RStudio and run the code, which will start by loading the deposited workspace.
+Each Figure in the paper will be saved as a single pdf file.
+Each file saves the current R workspace at the end, and the next file loads the generated workspace in the beginning. 
+(Because the original record files exported from the literature databases are not provided, the code in 1_import does not work)
+
+### Session info
 
 ## Acknowledgements
 The authors acknowledge the developers and maintainers of the packages used in this study.  
