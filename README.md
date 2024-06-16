@@ -15,14 +15,16 @@ The RStudio workspace after this step was uploaded in this repository for reprod
 ### R code
 The analysis was performed by running the R codes in the following order with R Studio.
 
-**1. import**: importing files exported from using bibiliometrix   
-**2. cleaning**: data cleaning for each dataset from the literature database  
-**3. merge**: merging datasets and visualisation of flow chart for literature selection (Fig 1)  
-**4. journal**: analysis of publication counts and journals(Fig 2)  
-**5. country**: author country analysis and country co-occurence network analysis (Fig 7, 8)  
-**6. keyword**: author keyword analysis and keyword co-occurence network analysis (Figure 3)  
-**7. citation**: extracting reference information from records of Web of Science and Scopus  
-**8. co-citation**: citation analysis (Fig 4) and co-citation network analysis (Fig 5, 6)  
+**01. import**: importing files exported from using bibiliometrix   
+**02. cleaning**: data cleaning for each dataset from the literature database  
+**03. merge**: merging datasets and visualisation of flow chart for literature selection (Fig 1)  
+**04. journal**: analysis of publication counts and journals(Fig 2)  
+**05. country**: author country analysis and country co-occurence network analysis (Fig 7, 8)  
+**06. keyword**: author keyword analysis and keyword co-occurence network analysis (Figure 3)  
+**07. citation**: extracting reference information from records of Web of Science and Scopus  
+**08. co-citation**: citation analysis (Fig 4) and co-citation network analysis (Fig 5, 6) 
+**09. flow_chart**: flow chart for literature selection (Fig S1)
+**10. supplementary**: other supplementary figures (Fig S2-S4)
 
 ### How to use
 Download and place the R workspace and all R code files from 2. cleaning in your working directory.
@@ -34,6 +36,4 @@ Each file saves the current R workspace at the end, and the next file loads the 
 ### Session info
 
 ## Acknowledgements
-The authors acknowledge the developers and maintainers of the packages used in this study.  
-Hierarchial edge bundling was implemented by adopting the code in The R Graph Gallery (https://r-graph-gallery.com/hierarchical-edge-bundling.html)  
 The full list of R packages for data analysis and visualisation is described in the supplementary material of the paper.
