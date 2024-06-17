@@ -27,7 +27,7 @@ The analysis was performed by running the R codes in the following order with R 
 `10_supplementary`: other supplementary figures (**Fig S2-S4**)
 
 ### How to use
-1. Download all Rmarkdown files from `02.cleaning` to `10.supplementary` in the working directory.
+1. Download all R markdown files from `02.cleaning` to `10.supplementary` in the working directory.
 2. Create following folders and place the necessary files in the working directory.  
 `data`: used to stored the files downloaded from literature databases (will not be used in this repository).  
 `figure`: save pdf files for Figures.  
