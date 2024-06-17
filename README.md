@@ -28,10 +28,10 @@ The analysis was performed by running the R codes in the following order with R 
 
 ### How to use
 1. Download all Rmarkdown files from `02.cleaning` to `10.supplementary` in the working directory.
-2. Create following folders and place the necessary files in the working directory.
-`data`: stored the files downloaded from literature databases (not used).
-`figure`: save pdf files for Figures.
-`rdata`: place `01_import.RData`.
+2. Create following folders and place the necessary files in the working directory.  
+`data`: stored the files downloaded from literature databases (not used).  
+`figure`: save pdf files for Figures.  
+`rdata`: place `01_import.RData`.  
 3. Run the code starting from `02.cleaning`.
 4. Each file saves the current R workspace at the end of the code.
 5. The next R markdown file loads the previously saved workspace in the beginning. 
