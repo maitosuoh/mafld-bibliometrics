@@ -20,11 +20,11 @@ The analysis was performed by running the R codes in the following order with R 
 `03.merge`: merging datasets and visualisation of flow chart for literature selection  
 `04.journal`: analysis of publication counts and journals (**Fig 1**)  
 `05.country`: author country analysis and country co-occurence network analysis (**Fig 6**)  
-`06.keyword`: author keyword analysis and keyword co-occurence network analysis (Fig 2)  
+`06.keyword`: author keyword analysis and keyword co-occurence network analysis (**Fig 2**)  
 `07.citation`: extracting reference information from records of Web of Science and Scopus  
-`08.co-citation`: citation analysis (Fig 3) and co-citation network analysis (Fig 4, 5)  
-`09.flow_chart`: flow chart for literature selection (Fig S1)  
-`10.supplementary`: other supplementary figures (Fig S2-S4)
+`08.co-citation`: citation analysis (Fig 3) and co-citation network analysis (**Fig 4, 5**)  
+`09.flow_chart`: flow chart for literature selection (**Fig S1**)  
+`10.supplementary`: other supplementary figures (**Fig S2-S4**)
 
 ### How to use
 1. Download all Rmarkdown files from `02.cleaning` to `10.supplementary` in the working directory.
@@ -37,4 +37,4 @@ The analysis was performed by running the R codes in the following order with R 
 5. The next R markdown file loads the previously saved workspace in the beginning. 
 
 ## Notes
-The full list of R packages for data analysis and visualisation is described in the supplementary material of the paper.
+The full list of R packages for data analysis and visualisation is described in the Supplementary material of the paper.
