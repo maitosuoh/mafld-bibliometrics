@@ -35,7 +35,7 @@ The analysis was performed by running the R codes in the following order with R 
 3. Run the code starting from `02.cleaning`.
 4. Each file saves the current R workspace at the end of the code.
 5. The next R markdown file loads the previously saved workspace in the beginning.
-6. Run all the R markdown files until `10.supplementary` to complete the analysis.
+6. Run all R markdown files until `10.supplementary` to complete the analysis.
 
 ## Notes
-The full list of R packages for data analysis and visualisation is described in the Supplementary material of the paper.
+The full list of R packages for data analysis and visualisation is described in the Supplementary materials of the paper.
