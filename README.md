@@ -28,14 +28,15 @@ The analysis was performed by running the R codes in the following order with R 
 
 ### How to use
 1. Download all R markdown files from `02.cleaning` to `10.supplementary` in the working directory.
-2. Create following folders and place the necessary files in the working directory.  
+2. Create following folders in the working directory and place the necessary files.  
 `data`: used to stored the files downloaded from literature databases (will not be used in this repository).  
 `figure`: save pdf files for Figures.  
 `rdata`: place `01_import.RData`.  
-3. Run the code starting from `02.cleaning`.
-4. Each file saves the current R workspace at the end of the code.
+3. Run the code starting from `02.cleaning`, which loads `01_import.RData` in `rdata` folder.
+4. Each file saves the current R workspace at the end of the code in `rdata` folder.
 5. The next R markdown file loads the previously saved workspace in the beginning.
 6. Run all R markdown files until `10.supplementary` to complete the analysis.
+7. The figures produced during the analysis will be stored in `figure` folder.
 
 ## Notes
 The full list of R packages for data analysis and visualisation is described in the Supplementary materials of the paper.
