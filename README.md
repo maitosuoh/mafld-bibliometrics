@@ -22,7 +22,7 @@ The analysis was performed by running the R codes in the following order with R 
 `05.country`: author country analysis and country co-occurence network analysis (**Fig 6**)  
 `06.keyword`: author keyword analysis and keyword co-occurence network analysis (**Fig 2**)  
 `07.citation`: extracting reference information from records of Web of Science and Scopus  
-`08.co-citation`: citation analysis (Fig 3) and co-citation network analysis (**Fig 4, 5**)  
+`08.co-citation`: citation analysis (**Fig 3**) and co-citation network analysis (**Fig 4, 5**)  
 `09.flow_chart`: flow chart for literature selection (**Fig S1**)  
 `10.supplementary`: other supplementary figures (**Fig S2-S4**)
 
