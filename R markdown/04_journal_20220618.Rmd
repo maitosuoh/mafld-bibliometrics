@@ -1,0 +1,769 @@
+---
+title: "MAFLD"
+output: html_document
+date: "2024-06-17"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(bibliometrix)
+library(tidyverse)
+library(ggtext)
+library(ggrepel)
+library(patchwork)
+```
+
+```{r}
+# load merge
+load(file="rdata/03_merge.RData")
+```
+
+```{r}
+# fill information in the order of pubmed, wos, scopus
+# publication year (PY), author (AU), keyword (DE), source database (DB)
+
+df_bx <- df_bx %>% 
+  mutate(PY = case_when(!is.na(PY_p) ~ PY_p,
+                        is.na(PY_p) & !is.na(PY_w) ~ PY_w,
+                        is.na(PY_p) & is.na(PY_w) ~ PY_s)) %>%
+  mutate(AU = case_when(!is.na(AU_p) ~ AU_p,
+                                is.na(AU_p) & !is.na(AU_w) ~ AU_w,
+                                is.na(AU_p) & is.na(AU_w) & !is.na(AU_s) ~ AU_s,
+                                .default = NA)) %>%
+  mutate(DE = case_when(!is.na(DE_p) ~ DE_p,
+                                is.na(DE_p) & !is.na(DE_w) ~ DE_w,
+                                is.na(DE_p) & is.na(DE_w) & !is.na(DE_s) ~ DE_s,
+                                .default = NA)) %>%
+  mutate(DB = case_when(!is.na(DB_p) ~ DB_p,
+                                is.na(DB_p) & !is.na(DB_w) ~ DB_w,
+                                is.na(DB_p) & is.na(DB_w) & !is.na(DB_s) ~ DB_s,
+                                .default = NA))
+```
+
+```{r}
+# format journal full name (SO)
+
+df_bx <- df_bx %>% 
+  mutate(SO_p = str_replace_all(SO_p, "&", "AND")) %>%
+  mutate(SO_w = str_replace_all(SO_w, "&", "AND")) %>%
+  mutate(SO_s = str_replace_all(SO_s, "&", "AND"))
+```
+
+```{r}
+# change SO to pubmed style
+so_wos_to_pm <- df_bx %>% 
+  filter((!is.na(SO_p)) & (!is.na(SO_w))) %>%
+  select(SO_p, SO_w) %>% 
+  distinct()
+
+so_scopus_to_pm <- df_bx %>% 
+  filter((!is.na(SO_p)) & (!is.na(SO_s))) %>% 
+  select(SO_p, SO_s) %>% 
+  distinct()
+```
+
+```{r}
+# check for different names for the same journal
+so_wos_to_pm %>% group_by(SO_p) %>% filter(n()>1) 
+so_wos_to_pm %>% group_by(SO_w) %>% filter(n()>1)
+
+so_scopus_to_pm %>% group_by(SO_p) %>% filter(n()>1)
+so_scopus_to_pm %>% group_by(SO_s) %>% filter(n()>1)
+
+# wos has different names for the same journal
+# DIABETES METABOLIC SYNDROME AND OBESITY-TARGETS AND THERAPY
+# DIABETES METABOLIC SYNDROME AND OBESITY
+```
+
+```{r}
+df_bx %>% filter(SO_w %in% c("DIABETES METABOLIC SYNDROME AND OBESITY-TARGETS AND THERAPY", "DIABETES METABOLIC SYNDROME AND OBESITY")) %>% View()
+```
+
+```{r}
+# change "DIABETES METABOLIC SYNDROME AND OBESITY" to 
+# "DIABETES METABOLIC SYNDROME AND OBESITY-TARGETS AND THERAPY" in wos
+
+df_bx <- df_bx %>%
+  mutate(SO_w = case_when(SO_w == "DIABETES METABOLIC SYNDROME AND OBESITY" ~ "DIABETES METABOLIC SYNDROME AND OBESITY-TARGETS AND THERAPY",
+                          .default = as.character(SO_w)))
+```
+
+```{r}
+# journal style change to pubmed style after correction
+so_wos_to_pm <- df_bx %>% 
+  filter((!is.na(SO_p) & (!is.na(SO_w)))) %>% 
+  select(SO_p, SO_w) %>%
+  distinct()
+
+so_scopus_to_pm <- df_bx %>% 
+  filter((!is.na(SO_p) & (!is.na(SO_s)))) %>% 
+  select(SO_p, SO_s) %>%
+  distinct()
+```
+
+```{r}
+sum(is.na(df_bx$SO_p))
+#70
+```
+
+```{r}
+# update SO pubmed 
+df_bx <- df_bx %>%
+  rows_update(tibble(so_wos_to_pm), by = "SO_w", unmatched = "ignore") %>%
+  rows_update(tibble(so_scopus_to_pm), by = "SO_s", unmatched = "ignore")
+```
+
+```{r}
+sum(is.na(df_bx$SO_p))
+#46   74-46 = 28
+```
+
+```{r}
+df_bx %>% filter(is.na(SO_p)) %>% View()
+```
+
+```{r}
+#Use J9 to update pubmed
+j9_wos_to_pm <- df_bx %>% 
+  filter((!is.na(J9_p)) & (!is.na(J9_w))) %>% 
+  select(J9_p, J9_w) %>% 
+  distinct()
+
+j9_scopus_to_pm <- df_bx %>% filter((!is.na(J9_p)) & (!is.na(J9_s))) %>% select(J9_p, J9_s) %>% distinct()
+```
+
+```{r}
+sum(is.na(df_bx$J9_p))
+#74
+```
+
+```{r}
+# check for duplicates
+j9_wos_to_pm %>% group_by(J9_p) %>% filter(n()>1)
+j9_wos_to_pm %>% group_by(J9_w) %>% filter(n()>1)
+
+j9_scopus_to_pm %>% group_by(J9_p) %>% filter(n()>1)
+j9_scopus_to_pm %>% group_by(J9_s) %>% filter(n()>1)
+
+#J9_w 
+```
+
+
+```{r}
+df_bx %>% filter(J9_p == "DIABETES METAB SYNDR")
+df_bx %>% filter(J9_p == "GENES (BASEL)")
+df_bx %>% filter(J9_s == "FRONT MED") # different journal
+
+# change J9_w from "DIAB MET SYND CLIN R" ~ "DIABETES METAB SYND"
+# change J9_s from "GENES" ~ "GENES (BASEL)" 
+```
+
+```{r}
+df_bx %>% filter(J9_w == "DIAB MET SYND CLIN R")
+df_bx %>% filter(J9_s == "GENES")
+df_bx %>% filter(J9_p == "FRONT MED")
+```
+
+```{r}
+# change J9_w from "DIAB MET SYND CLIN R" ~ "DIABETES METAB SYND"
+# change J9_s from "GENES" ~ "GENES (BASEL)" 
+df_bx <- df_bx %>%
+  mutate(J9_w = case_when(J9_w == "DIAB MET SYND CLIN R" ~ "DIABETES METAB SYND",
+                          .default = as.character(J9_w))) %>%
+  mutate(J9_s = case_when(J9_s == "GENES" ~ "GENES (BASEL)",
+                          .default = as.character(J9_s))) %>%
+  mutate(J9_s = case_when(SO_s == "FRONTIERS IN MEDICINE" ~ "FRONT MED (LAUSANNE)",
+                          .default = as.character(J9_s)))
+```
+
+```{r}
+#correct J9 to update pubmed again
+j9_wos_to_pm <- df_bx %>% filter((!is.na(J9_p)) & (!is.na(J9_w))) %>% select(J9_p, J9_w) %>% distinct()
+j9_scopus_to_pm <- df_bx %>% filter((!is.na(J9_p)) & (!is.na(J9_s))) %>% select(J9_p, J9_s) %>% distinct()
+```
+
+```{r}
+#check again
+j9_wos_to_pm %>% group_by(J9_p) %>% filter(n()>1)
+j9_wos_to_pm %>% group_by(J9_w) %>% filter(n()>1)
+
+j9_scopus_to_pm %>% group_by(J9_p) %>% filter(n()>1)
+j9_scopus_to_pm %>% group_by(J9_s) %>% filter(n()>1)
+```
+
+```{r}
+df_bx %>% filter(J9_w == "DIABETES METAB SYND")
+df_bx %>% filter(J9_s == "GENES (BASEL)")
+df_bx %>% filter(J9_s == "FRONT MED (LAUSANNE)")
+```
+
+```{r}
+# format J9 for pubmed
+df_bx <- df_bx %>%
+  rows_update(tibble(j9_wos_to_pm), by = "J9_w", unmatched = "ignore") %>%
+  rows_update(tibble(j9_scopus_to_pm), by = "J9_s", unmatched = "ignore")
+```
+
+```{r}
+sum(is.na(df_bx$J9_p))
+```
+
+```{r}
+df_bx %>% filter(is.na(J9_p)) %>% View()
+```
+
+```{r}
+df_bx %>% filter(is.na(SO_p) & (!is.na(SO_w)) & (!is.na(SO_s))) %>% nrow()
+df_bx %>% filter(is.na(SO_p) & (!is.na(SO_w)) & is.na(SO_s)) %>% nrow()
+df_bx %>% filter(is.na(SO_p) & is.na(SO_w) & (!is.na(SO_s))) %>% nrow()
+
+# pubmed NA & wos NA & scopus NA 19
+# pubmed NA & wos non-NA & scopus NA 6
+# pubmed NA & wos NA & scopus non-NA 18
+```
+
+```{r}
+# check discrepancy between SO_w and SO_s
+df_bx %>%
+  filter(is.na(SO_p) & str_equal(SO_w, SO_s)) %>%
+  count(SO_w, SO_s) 
+# no duplicates in SO
+```
+
+```{r}
+df_bx %>%
+  filter(is.na(SO_p) & !str_equal(SO_w, SO_s))
+#no data available
+```
+
+```{r}
+df_bx %>% filter(is.na(SO_p) & (!is.na(SO_w)) & is.na(SO_s)) %>% distinct(SO_w) %>% pull(SO_w)
+df_bx %>% filter(is.na(SO_p) & is.na(SO_w) & (!is.na(SO_s))) %>% distinct(SO_s) %>% pull(SO_s)
+# no duplicates
+```
+
+
+```{r}
+df_bx %>%
+  filter(is.na(J9_p)) %>%
+  filter(!str_equal(J9_w, J9_s)) %>%
+  count(J9_w, J9_s) 
+```
+
+```{r}
+df_bx %>%
+  filter(is.na(J9_p)) %>%
+  filter(!str_equal(J9_w, J9_s)) %>%
+  View()
+```
+
+```{r}
+# check o
+df_bx %>% filter(is.na(J9_p) & (!is.na(J9_w)) & is.na(J9_s)) %>% distinct(J9_w) %>% pull(J9_w)
+df_bx %>% filter(is.na(J9_p) & is.na(J9_w) & (!is.na(J9_s))) %>% distinct(J9_s) %>% pull(J9_s)
+# no overlapping journals
+```
+
+```{r}
+df_bx <- df_bx %>%
+  mutate(SO = case_when(!is.na(SO_p) ~ SO_p,
+                        is.na(SO_p) & !is.na(SO_w) ~ SO_w,
+                        is.na(SO_p) & is.na(SO_w) ~ SO_s)) %>%
+  mutate(J9 = case_when(!is.na(J9_p) ~ J9_p,
+                        is.na(J9_p) & !is.na(J9_w) ~ J9_w,
+                        is.na(J9_p) & is.na(J9_w) ~ J9_s))
+
+```
+
+```{r}
+# check missing values for journal names
+sum(is.na(df_bx$SO))
+sum(is.na(df_bx$J9))
+# 0
+```
+
+```{r}
+# create formatted name for each publication
+# PN2: surname, forename (year)
+# PN3: surname, forename, abbreviated journal (year)
+
+df_bx <- df_bx %>%
+  mutate(J9_ti = str_to_title(J9)) %>%
+  mutate(J9_ti = str_remove(J9_ti, "\\s\\([^\\)]*\\)")) %>%
+  mutate(AU_full = if_else(str_detect(AU, ";"), 
+                          str_extract(AU, "^[^;]+(?=;)"), AU)) %>%
+  mutate(AU_sur = str_extract(AU_full, "^[^\\s]+(?=\\s)")) %>%
+  mutate(AU_for = str_extract(AU_full, "(?<=\\s).+$")) %>%
+  mutate(PN2 = paste0(str_to_title(as.character(AU_sur)), " ", as.character(AU_for), " (", as.character(PY), ")")) %>%
+  mutate(PN3 = paste0(str_to_title(as.character(AU_sur)), " ", as.character(AU_for), ", " , as.character(J9_ti), " (",  as.character(PY), ")" ))
+```
+
+```{r}
+# visualise top 20 counts in SO
+df_bx %>%
+  count(SO) %>%
+  slice_max(n, n = 20) %>%
+  mutate(SO = str_remove(SO, "\\s\\:.*")) %>%
+  mutate(SO = str_remove(SO, "\\s\\([^\\)]+\\)")) %>%
+  mutate(SO = str_to_title(SO)) %>%
+  mutate(SO = str_replace_all(SO, " Of ", " of ")) %>%
+  mutate(SO = str_replace_all(SO, " In ", " in ")) %>%
+  mutate(SO = str_replace_all(SO, " And ", " and ")) %>%
+  ggplot(aes(n, fct_reorder(SO, n))) +
+  geom_col(fill = "#4E98D3")+
+  labs(x = "Number of publications", y = "Journal")+
+  scale_x_continuous(breaks = seq(0, 60, 10), 
+                   limits = c(0,60), 
+                   expand = c(0,0))+
+  theme_classic()
+```
+
+```{r}
+df_bx %>%
+  count(J9) %>%
+  slice_max(n, n = 20) %>%
+  mutate(J9 = str_remove(J9, "\\s\\:.*")) %>%
+  mutate(J9 = str_remove(J9, "\\s\\([^\\)]+\\)")) %>%
+  mutate(J9 = str_to_title(J9)) %>%
+  mutate(J9 = str_replace_all(J9, " Of ", " of ")) %>%
+  mutate(J9 = str_replace_all(J9, " In ", " in ")) %>%
+  mutate(J9 = str_replace_all(J9, " And ", " and ")) %>%
+  ggplot(aes(n, fct_reorder(J9, n))) +
+  geom_col(fill = "#ff7f00")+
+  labs(x = "Number of publications", y = "Journal")+
+  scale_x_continuous(breaks = seq(0, 60, 10), 
+                   limits = c(0,60), 
+                   expand = c(0,0))+
+  theme_classic()
+```
+
+```{r}
+# dataframe for journal counts based on the number of publishing papers
+df_so_count <- df_bx %>% 
+  count(SO) %>%
+  rename(SO_n = "n") %>%
+  count(SO_n)
+```
+
+```{r}
+# labels for the top publishing journals
+df_so_label <- df_bx %>% 
+  count(SO) %>% 
+  arrange(desc(n)) %>% 
+  slice_max(n, n = 19) %>%
+  mutate(SO = str_remove(SO, "\\s\\(.*")) %>%
+  mutate(SO = str_remove(SO, "\\s:.+$")) %>%
+  mutate(SO = str_to_title(SO)) %>%
+  mutate(SO = str_replace(SO, " And ", " and ")) %>%
+  mutate(SO = str_replace(SO, " In ", " in ")) %>%
+  mutate(SO = str_replace(SO, " Of ", " of ")) %>%
+  rename(SO_n = "n") %>%
+ left_join(df_so_count %>% select(SO_n, n), by = join_by(SO_n)) 
+ #%>%
+#  mutate(SO = str_c(SO, " (", SO_n, ")"))
+```
+
+```{r}
+# histogram of journal counts based on the number of publications with annotations (Fig 2c)
+df_so_count %>%
+  ggplot(aes(SO_n, n))+
+  geom_col(fill = "#e41a1c", width = 1)+
+  labs(x = "Number of publications in each journal", 
+       y = "Journal count",
+       tag = "c")+
+  scale_x_continuous(breaks = seq(0, 60, 5), 
+                   limits = c(0,60), 
+                   expand = c(0,0))+
+  scale_y_continuous(breaks = seq(0, 250, 50), 
+                   limits = c(0,250), 
+                   expand = c(0,0))+
+  geom_text_repel(data = subset(df_so_label, SO_n >= 15),
+            aes(label = SO), 
+            force = 1,
+            force_pull = 0,
+            colour = "black",
+            size = 2.8,
+            angle = 90,
+            nudge_y = 25 - subset(df_so_label, SO_n >= 15)$n,
+            segment.linetype = 1,
+            direction = "x",
+            hjust = 0,
+            vjust = 0.5,
+            segment.size = 0.25,
+            segment.alpha = 1,
+            max.overlaps = 10)+
+  theme_classic()+
+  theme(plot.tag = element_text(size = 12,face="bold"),
+        axis.title = element_text(size = 8, colour = "black", face = "bold"),
+        axis.text=element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        plot.margin = margin(0,0.5, 0, 0, "cm"))
+```
+
+```{r}
+# publication type
+sum(is.na(df_bx$DT_p))
+sum(is.na(df_bx$DT_w))
+sum(is.na(df_bx$DT_s))
+```
+
+```{r}
+# explore publication type in pubmed
+df_bx %>% count(DT_p) %>% View()
+```
+
+```{r}
+# check "COMMENT;LETTER;META-ANALYSIS"
+df_bx %>% filter(DT_p == "COMMENT;LETTER;META-ANALYSIS")
+# letter/comment
+```
+
+```{r}
+# explore publication type in wos
+df_bx %>% count(DT_w) %>% View()
+```
+
+```{r}
+# explore publication type in scopus
+df_bx %>% count(DT_s) %>% View()
+```
+
+```{r}
+# format publication type in pubmed
+df_bx <- df_bx %>%
+  mutate(DT_p = case_when(str_detect(DT_p, "CASE REPORTS") ~ "ARTICLE",
+                                              .default = as.character(DT_p))) %>%
+  mutate(DT_p = case_when(str_detect(DT_p, "LETTER")
+                           | str_detect(DT_p, "EDITORIAL")
+                           | str_detect(DT_p, "COMMENT") ~ "EDITORIAL",
+                           .default = as.character(DT_p))) %>%
+  mutate(DT_p = case_when(str_detect(DT_p, "REVIEW")
+                           |str_detect(DT_p, "META-ANALYSIS")
+                           |str_detect(DT_p, "GUIDELINE") ~ "REVIEW",
+                           .default = as.character(DT_p))) %>%
+  mutate(DT_p = case_when(str_detect(DT_p, "JOURNAL ARTICLE") ~ "ARTICLE",
+                           .default = as.character(DT_p)))
+```
+
+```{r}
+# format publication type in wos
+df_bx<- df_bx %>%
+  mutate(DT_w = case_when(str_detect(DT_w, "ARTICLE") ~ "ARTICLE",
+                           str_detect(DT_w, "EDITORIAL")
+                           |str_detect(DT_w, "LETTER") ~ "EDITORIAL",
+                           str_detect(DT_w, "REVIEW") ~ "REVIEW",
+                           .default = as.character(DT_w)))
+```
+
+```{r}
+# format publication type in scopus
+df_bx <- df_bx %>%
+  mutate(DT_s = case_when(str_detect(DT_s, "NOTE")
+                           |str_detect(DT_s, "EDITORIAL")
+                           |str_detect(DT_s, "LETTER")
+                           |str_detect(DT_s, "SHORT SURVEY") ~ "EDITORIAL",
+                           .default = as.character(DT_s)))
+```
+
+```{r}
+# check discrepancies between title and publication type in pubmed
+
+df_bx %>% filter(str_detect(TI, "REVIEW") & DT_p != "REVIEW") %>% select(TI, PM, DT_p, DT_w, DT_s)
+# 3 systematic review and meta-analysis
+
+df_bx %>% filter(str_detect(TI, "EDITORIAL") & DT_p != "EDITORIAL") %>% select(TI, PM, DT_p, DT_w, DT_s)
+# 0
+
+df_bx %>% filter(str_detect(TI, "COMMENT") & DT_p != "EDITORIAL") %>% select(TI, PM, DT_p, DT_w, DT_s)
+# 2 commentary -> change to editorial
+
+
+df_bx %>% filter(str_detect(TI, "LETTER") & DT_p != "EDITORIAL") %>% select(TI, PM, DT_p, DT_w, DT_s)
+# 2 (37651223 and 37602206) letter -> change to editorial 
+
+
+df_bx %>% filter(str_detect(TI, "REPLY") & DT_p != "EDITORIAL") %>% select(TI, PM, DT_p, DT_w, DT_s)
+# 1 reply -> change to editorial
+```
+
+```{r}
+# correct wrong publication type in pubed
+df_bx <- df_bx %>% 
+  mutate(DT_p = case_when(str_detect(TI, "REVIEW") & DT_p != "REVIEW" ~ "REVIEW",
+                          str_detect(TI, "COMMENT") & DT_p != "EDITORIAL" ~ "EDITORIAL",
+                          DT_p %in% c("37651223", "37602206") ~ "EDITORIAL",
+                          str_detect(TI, "REPLY") & DT_p != "EDITORIAL" ~ "EDITORIAL",
+                          .default = as.character(DT_p)))
+```
+
+```{r}
+# check discrepancies between title and publication type in wos
+
+df_bx %>% filter(str_detect(TI, "REVIEW") & DT_w != "REVIEW") %>% select(TI, PM, DT_p, DT_w, DT_s)
+# 2 systematic review (and meta-analysis)
+
+df_bx %>% filter(str_detect(TI, "EDITORIAL") & DT_w != "EDITORIAL") %>% select(TI, PM, DT_p, DT_w, DT_s)
+# 0
+
+df_bx %>% filter(str_detect(TI, "COMMENT") & DT_w != "EDITORIAL") %>% select(TI, PM, DT_p, DT_w, DT_s)
+# 0
+
+df_bx %>% filter(str_detect(TI, "LETTER") & DT_w != "EDITORIAL") %>% select(TI, PM, DT_p, DT_w, DT_s)
+# 1 article in 3 databases
+
+df_bx %>% filter(str_detect(TI, "REPLY") & DT_w != "EDITORIAL") %>% select(TI, PM, DT_p, DT_w, DT_s)
+# 0
+```
+
+```{r}
+# correct wrong publication type in wos
+df_bx <- df_bx %>% 
+  mutate(DT_w = case_when(str_detect(TI, "REVIEW") & DT_w != "REVIEW" ~ "REVIEW",
+                          str_detect(TI, "EDITORIAL") & DT_w != "EDITORIAL" ~ "EDITORIAL",
+                          .default = as.character(DT_w)))
+```
+
+```{r}
+# check discrepancies between title and publication type in scopus
+
+df_bx %>%
+  filter(str_detect(TI, "REVIEW") & DT_s != "REVIEW") %>% select(TI, PM, DT_p, DT_w, DT_s)
+# 10 systematic review and meta-analysis -> change to review
+
+df_bx %>%
+  filter(str_detect(TI, "EDITORIAL") & DT_s != "EDITORIAL") %>% select(TI, PM, DT_p, DT_w, DT_s)
+# 4 editorial -> fix
+
+df_bx %>%
+  filter(str_detect(TI, "COMMENT") & DT_s != "EDITORIAL") %>% select(TI, PM, DT_p, DT_w, DT_s)
+# 2 comments -> change to editorial
+
+df_bx %>%
+  filter(str_detect(TI, "LETTER") & DT_s != "EDITORIAL") %>% select(TI, PM, DT_p, DT_w, DT_s)
+# 1 (article in 3 databases)
+
+df_bx %>%
+  filter(str_detect(TI, "REPLY") & DT_s != "EDITORIAL") %>% select(TI, PM, DT_p, DT_w, DT_s)
+# 0
+```
+
+```{r}
+# correct wrong publication type in scopus
+df_bx <- df_bx %>% 
+  mutate(DT_s = case_when(str_detect(TI, "REVIEW") & DT_s != "REVIEW" ~ "REVIEW",
+                          str_detect(TI, "COMMENT") & DT_s != "EDITORIAL" ~ "EDITORIAL",
+                          str_detect(TI, "EDITORIAL") & DT_s != "EDITORIAL" ~ "EDITORIAL",
+                          .default = as.character(DT_s)))
+```
+
+
+```{r}
+df_bx %>% nrow()
+
+df_bx %>%
+  filter(DT_p == DT_w & DT_p == DT_s & DT_w == DT_s) %>% nrow()
+```
+
+```{r}
+# assign DT if publication type is consistent across three databases
+df_bx <- df_bx %>% 
+  mutate(DT = case_when(DT_p == DT_w & DT_p == DT_s & DT_w == DT_s ~ DT_p,
+                        .default = NA))
+```
+
+```{r}
+# assign DT if publication type exists in three databases and is consistent between two databases
+df_bx <- df_bx %>%
+  mutate(DT = case_when(DT_p == DT_w & DT_p != DT_s ~ DT_p,
+                        DT_p == DT_s & DT_p != DT_w ~ DT_p,
+                        DT_w == DT_s & DT_p != DT_w ~ DT_w,
+                        .default = as.character(DT)))
+```
+
+```{r}
+df_bx %>% count(DT)
+```
+
+
+```{r}
+df_bx %>% filter(is.na(DT)) %>%
+  count(DT_p, DT_w, DT_s) %>%
+  arrange(desc(n))
+```
+
+```{r}
+# assign DT if publication type exists in three databases and is consistent between two databases
+df_bx <- df_bx %>%
+  mutate(DT = case_when(DT_p == DT_w & is.na(DT_s) ~ DT_p,
+                        DT_p == DT_s & is.na(DT_w) ~ DT_p,
+                        DT_w == DT_s & is.na(DT_p) ~ DT_w,
+                        .default = as.character(DT)))
+```
+
+```{r}
+df_bx %>% filter(is.na(DT)) %>% nrow()
+
+df_bx %>% filter(is.na(DT)) %>%
+  count(DT_p, DT_w, DT_s) %>%
+  arrange(desc(n))
+```
+
+```{r}
+# check remaining discrepancies between databases
+
+# three non-NA
+df_bx %>% filter(DT_p != DT_w & DT_p != DT_s & DT_w != DT_s)
+# 0
+
+# two non-NA + one NA
+# pubmed != wos, scopus NA
+df_bx %>% filter(DT_p != DT_w & is.na(DT_s)) %>% select(TI, PM, DI, SO, DT_p, DT_w, DT_s, DT)
+# 2 use pubmed
+
+# pubmed != scopus, wos missing
+df_bx %>% filter(DT_p != DT_s & is.na(DT_w)) %>% select(TI, PM, DI, SO, DT_p, DT_w, DT_s, DT)
+# 34509272 is editorial, use pubmed for the remaining 3 
+
+# wos != scopus, pubmed missing
+df_bx %>% filter(DT_w != DT_s & is.na(DT_p)) %>% select(TI, PM, DI, SO, DT_p, DT_w, DT_s, DT)
+# 2 reviews use wos
+```
+
+```{r}
+df_bx <- df_bx %>%
+  mutate(DT = case_when(DT_p != DT_w & is.na(DT_s) ~ DT_p,
+                        DT_p != DT_s & is.na(DT_w) ~ DT_p,
+                        PM == "34509272" ~ "EDITORIAL",
+                        DT_w != DT_s & is.na(DT_p) ~ DT_w,
+                        .default = as.character(DT)))
+```
+
+```{r}
+# check remaining missing values in DT
+df_bx %>% filter(is.na(DT)) %>% count(DT_p, DT_w, DT_s)
+
+# All publications are indexed in only one databases
+```
+
+```{r}
+# If information from only one database is available, use this
+df_bx <- df_bx %>%
+  mutate(DT = case_when(!is.na(DT_p) & is.na(DT_w) & is.na(DT_s) ~ DT_p,
+                        is.na(DT_p) & !is.na(DT_w) & is.na(DT_s) ~ DT_w,
+                        is.na(DT_p) & is.na(DT_w) & !is.na(DT_s) ~ DT_s,
+                        .default = as.character(DT)))
+```
+
+```{r}
+# check no missing values in DT
+df_bx %>% filter(is.na(DT)) %>% nrow()
+```
+
+```{r}
+# plot overall annual publication counts (Fig 2a)
+p1_a <- df_bx %>%
+  mutate(PY = case_when(PY == "2024" ~ "2023", .default = as.character(PY))) %>%
+  count(PY) %>%
+  ggplot(aes(PY, n)) +
+  geom_col(fill = "#377eb8", width = 0.7)+
+  geom_text(aes(label = n), vjust = 0, nudge_y = 600/50, size = 2.8)+
+  labs(x = "Year", y = "Publication count", tag = "a")+
+  scale_y_continuous(breaks = seq(0, 600, 100), 
+                   limits = c(0,600), 
+                   expand = c(0,0))+
+  theme_classic()+
+  theme(plot.tag = element_text(size = 12, face = "bold"),
+        axis.title = element_text(size = 8, colour = "black", face = "bold"),
+        axis.text.x=element_text(size= 8, colour = "black", angle = 90, vjust = 0.5),
+         axis.text.y=element_text(size= 8, colour = "black"),
+         axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        plot.margin = margin(0, 0.5, 0, 0, "cm"))
+```
+
+```{r}
+# plot annual publication counts based on publication type (Fig 2b)
+p1_b <-
+  df_bx %>%
+  mutate(PY = case_when(PY == "2024" ~ "2023",
+                        .default = as.character(PY))) %>%
+  group_by(DT, PY) %>%
+  summarise(n = n()) %>%
+  left_join(df_bx %>% count(DT) %>% rename(n_pub = "n"), by = join_by(DT)) %>%
+  mutate(DT = str_to_title(DT)) %>%
+  mutate(DT = str_c("<b>", DT, "</b>", " (", n_pub, ")")) %>%
+  mutate(DT = factor(DT, levels = c("<b>Article</b> (843)",
+                                    "<b>Review</b> (421)",
+                                    "<b>Editorial</b> (205)"))) %>%
+  ggplot(aes(PY, n, fill = DT)) +
+  geom_col(width = 0.7)+
+  facet_wrap(vars(DT), nrow = 1, scales = "free_y")+
+  scale_y_continuous(breaks = seq(0, 400, 100), 
+                   limits = c(0,400), 
+                   expand = c(0,0))+
+  scale_fill_manual(values = c("#4daf4a","#e41a1c", "#984ea3"), guide = "none")+
+  geom_text(aes(label = n), vjust = 0, nudge_y = 400/50, size = 2.8)+
+  theme_classic()+
+  labs(x = "Year", y = "Publication count", tag = "b") +
+  theme_classic()+
+   theme(plot.tag = element_text(size = 12, face="bold"),
+         axis.title = element_text(size = 8, face="bold"),
+         axis.text.x = element_text(size = 8, colour = "black", angle = 90, vjust = 0.5),
+         axis.text.y = element_text(size = 8, colour = "black"),
+         axis.line = element_line(linewidth = 0.3, colour = "black"),
+         axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+         strip.background = element_blank(),
+         strip.text = element_markdown(size = 8),
+         plot.margin = unit(c(0,0.5,0,0), "cm"))
+```
+
+```{r}
+# histogram of journal counts based on the number of publications with annotations (Fig 2c)
+p1_c <- df_bx %>%
+  count(SO) %>%
+  filter(n >= 15) %>%
+  mutate(SO = str_remove(SO, "\\s\\:.*")) %>%
+  mutate(SO = str_remove(SO, "\\s\\([^\\)]+\\)")) %>%
+  mutate(SO = str_to_title(SO)) %>%
+  mutate(SO = str_replace_all(SO, " Of ", " of ")) %>%
+  mutate(SO = str_replace_all(SO, " In ", " in ")) %>%
+  mutate(SO = str_replace_all(SO, " And ", " and ")) %>%
+  mutate(so_width = str_width(SO)) %>%
+  arrange(n, desc(so_width)) %>%
+  mutate(order = row_number()) %>%
+  ggplot(aes(n, fct_reorder(SO, order))) +
+  geom_col(fill = "#ff7f00", width = 0.7)+
+  geom_text(aes(label = n), hjust = 0, vjust = 0.5, nudge_x = 65/150, size = 2.8)+
+  labs(x = "Number of publications", y = "Journal", tag = "c")+
+  scale_x_continuous(breaks = seq(0, 65, 5), 
+                   limits = c(0,65), 
+                   expand = c(0,0))+
+  theme_classic()+
+  theme(plot.tag = element_text(size = 12,face="bold"),
+        axis.title = element_text(size = 8, colour = "black", face = "bold"),
+        axis.text=element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        plot.margin = margin(0,0.5, 0, 0, "cm"))
+```
+
+```{r}
+# combine plots and save (Fig 2)
+p1 <- p1_a + p1_b+ free(p1_c)+
+  plot_layout(design = "
+              ABBB
+              CCCC
+              CCCC")
+
+ggsave("figure/Fig1.pdf", p1, width = 174, height = 150, unit = "mm")
+```
+
+```{r}
+# end of publication counts and journal analysis
+# save the workspace
+save.image(file = "rdata/04_journal.RData")
+```

@@ -1,0 +1,766 @@
+---
+title: "MAFLD"
+output: html_document
+date: "2024-06-17"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(bibliometrix)
+library(tidyverse)
+library(ggtext)
+library(glue)
+library(ggrepel)
+library(countrycode)
+library(sf)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(rmapshaper)
+library(CoordinateCleaner)
+library(igraph)
+library(ggraph)
+library(tidygraph)
+library(patchwork)
+library(cowplot)
+```
+
+```{r}
+# load workspace
+load("rdata/07_citation.RData")
+```
+
+```{r}
+# difference in CR_di between wos and scopus likely to be acceptable
+wos_cr_map  %>% count(CR_di) %>%
+  full_join(scopus_cr_map %>% count(CR_di), by = join_by(CR_di), suffix = c("_w", "_s")) %>%
+  mutate(dif = abs(n_w - n_s)) %>%
+  filter(dif >= 10) %>%
+  arrange(desc(dif))
+```
+
+```{r}
+# combine filtered references from wos and scopus
+ws_cr <- wos_cr_map %>% select(!dplyr::ends_with("_w")) %>%
+  bind_rows(scopus_cr_map %>% select(!dplyr::ends_with("_s"))) %>%
+  distinct(UI, CR_di, .keep_all =  TRUE) %>%
+  ungroup()
+```
+
+```{r}
+# create edge list
+# from = CR_di (cited ref), to = UI (citing paper)
+cr_edgelist <- ws_cr %>%
+  select(CR_di, UI) %>%
+  count(CR_di, UI) %>%
+  rename(from = "CR_di", to = "UI") %>%
+  select(from, to, n) %>%
+  filter(from != to)
+```
+
+```{r}
+# check all edge weight is 1
+cr_edgelist %>%
+  count(from, to) %>%
+  rename(weight = "n") %>%
+  count(weight)
+```
+
+```{r}
+# no self loop edge
+cr_edgelist %>% filter(from == to)
+```
+
+```{r}
+# construct direct citation network to detect multiple edges
+gr_cr_dir <- graph_from_data_frame(cr_edgelist, directed = FALSE, vertices = NULL)
+
+tbl_gr_cr_dir <- as_tbl_graph(gr_cr_dir, directed = FALSE)
+```
+
+```{r}
+tbl_gr_cr_dir
+
+# A tbl_graph: 1329 nodes and 7784 edges
+# An undirected multigraph with 5 components
+```
+
+```{r}
+# check self-loop edge
+tbl_gr_cr_dir %>%
+  activate(edges) %>%
+  mutate(loop = edge_is_loop()) %>%
+  as_tibble() %>%
+  filter(loop == TRUE)
+```
+
+```{r}
+# check multiple edges
+tbl_gr_cr_dir %>%
+  activate(edges) %>%
+  mutate(multi = edge_is_multiple()) %>%
+  as_tibble() %>%
+  filter(multi == TRUE)
+# "47 - 343"
+```
+
+```{r}
+# check connections between 47 and 343
+tbl_gr_cr_dir %>%
+  activate(nodes) %>%
+  mutate(row = row_number()) %>%
+  filter(row %in% c(47, 343))
+
+# name                        row
+# <chr>                       <int>
+# 10.1007/s12072-020-10094-2  47
+# 10.1111/liv.14478           343
+```
+
+```{r}
+# correct
+ws_cr %>% filter(UI == "10.1007/s12072-020-10094-2" &
+                 CR_di == "10.1111/liv.14478")
+
+# wrong
+ws_cr %>% filter(UI == "10.1111/liv.14478" &
+                 CR_di == "10.1007/s12072-020-10094-2")
+```
+
+```{r}
+# check wrong edge in cr_edgelist(from = "CR_di", to = "UI")
+cr_edgelist %>%
+  filter(from == "10.1007/s12072-020-10094-2" & to == "10.1111/liv.14478")
+
+nrow(cr_edgelist)
+#
+```
+
+```{r}
+# remove wrong edge
+cr_edgelist <- cr_edgelist %>%
+  filter(!(from == "10.1007/s12072-020-10094-2" & to == "10.1111/liv.14478"))
+nrow(cr_edgelist)
+# 7778
+
+# end of cleaning edgelist
+```
+
+```{r}
+# visualise citation counts in web of science
+df_bx %>%
+  filter(!is.na(TC_w)) %>%
+  slice_max(TC_w, n = 20) %>%
+  mutate(PN2 = case_when(PM == "32278004" ~ paste(PN2, "[a]"),
+                         .default = as.character(PN2))) %>%
+  mutate(PN2 = case_when(PM == "32044314" ~ paste(PN2, "[b]"),
+                         .default = as.character(PN2))) %>%
+  mutate(PN2 = case_when(PM == "33006093" ~ paste(PN2, "[c]"),
+                         .default = as.character(PN2))) %>%
+  mutate(TI = str_remove(TI, "LETTER TO THE EDITOR: ")) %>%
+  mutate(TI = str_to_sentence(TI)) %>%
+  mutate(TI = str_replace(TI, "Mafld", "MAFLD")) %>%
+  mutate(TI = str_replace(TI, "mafld", "MAFLD")) %>%
+  mutate(TI = str_replace(TI, "nafld", "NAFLD")) %>%
+  mutate(TI = str_replace(TI, "covid-19", "COVID-19")) %>%
+  mutate(TI = str_replace(TI, "ckd", "CKD")) %>%
+  mutate(TI = str_replace(TI, "asian pacific association for the study of the liver", "Asian Pacific Association for the Study of the Liver")) %>%
+  ggplot(aes(TC_w, fct_reorder(PN2, TC_w))) +
+  geom_col(fill = "#4daf4a", alpha = 0.5)+
+  geom_text(aes(x = 40, label = TI), hjust = 0, vjust = 0.5, size = 3)+
+  scale_x_continuous(breaks = seq(0, 2000, 500), 
+                   limits = c(0,2000), 
+                   expand = c(0,0))+
+  labs(x = "Citation count", y = "Publication", title = "Web of Science") +
+  theme_classic()+
+  theme(plot.margin = unit(c(0,0.5,0,0), "cm"))
+```
+
+```{r}
+# visualise citation counts in scopus
+df_bx %>%
+  filter(!is.na(TC_s)) %>%
+  slice_max(TC_s, n = 20) %>%
+  mutate(PN2 = case_when(PM == "32278004" ~ paste(PN2, "[a]"),
+                         .default = as.character(PN2))) %>%
+  mutate(PN2 = case_when(PM == "32044314" ~ paste(PN2, "[b]"),
+                         .default = as.character(PN2))) %>%
+  mutate(PN2 = case_when(PM == "33006093" ~ paste(PN2, "[c]"),
+                         .default = as.character(PN2))) %>%
+  mutate(TI = str_remove(TI, "LETTER TO THE EDITOR: ")) %>% 
+  mutate(TI = str_to_sentence(TI)) %>%
+  mutate(TI = str_remove(TI, "LETTER TO THE EDITOR: ")) %>%
+  mutate(TI = str_to_sentence(TI)) %>%
+  mutate(TI = str_replace(TI, "Mafld", "MAFLD")) %>%
+  mutate(TI = str_replace(TI, "mafld", "MAFLD")) %>%
+  mutate(TI = str_replace(TI, "nafld", "NAFLD")) %>%
+  mutate(TI = str_replace(TI, "covid-19", "COVID-19")) %>%
+  mutate(TI = str_replace(TI, "ckd", "CKD")) %>%
+  mutate(TI = str_replace(TI, "asian pacific association for the study of the liver", "Asian Pacific Association for the Study of the Liver")) %>%
+  ggplot(aes(TC_s, fct_reorder(PN2, TC_s))) +
+  geom_col(fill = "#F9A134", alpha = 0.5)+
+  geom_text(aes(x = 40, label = TI), hjust = 0, vjust= 0.5, size = 3)+
+  scale_x_continuous(breaks = seq(0, 2000, 500), 
+                   limits = c(0,2000), 
+                   expand = c(0,0))+
+  labs(x = "Citation count", y = "Publication", title = "Scopus") +
+  theme_classic()+
+  theme(plot.margin = unit(c(0,0.5,0,0), "cm"))
+```
+
+```{r}
+# visualise citation counts from MAFLD literature
+ws_cr %>% count(CR_di) %>%
+  left_join(df_bx %>% select(TI, PY, PM, PN2, PN3, UI), by = join_by(CR_di == UI)) %>%
+  slice_max(n, n = 20) %>%
+  mutate(PN2 = case_when(PM == "32278004" ~ "Eslam M (2020) [a]",
+                   PM == "32044314" ~ "Eslam M (2020) [b]",
+                   PM == "33006093" ~ "Eslam M (2020) [c]",
+                   PM == "33031758" ~ "Shiha G (2021) [a]",
+                   PM == "33181119" ~ "Shiha G (2021) [b]",
+                   .default = as.character(PN2))) %>%
+  mutate(TI = str_to_sentence(TI)) %>%
+  mutate(TI = str_replace(TI, "Mafld", "MAFLD")) %>%
+  mutate(TI = str_replace(TI, "mafld", "MAFLD")) %>%
+  mutate(TI = str_replace(TI, "nafld", "NAFLD")) %>%
+  mutate(TI = str_replace(TI, "covid-19", "COVID-19")) %>%
+  mutate(TI = str_replace(TI, "ckd", "CKD")) %>%
+  mutate(TI = str_replace(TI, "asian pacific association for the study of the liver", "Asian Pacific Association for the Study of the Liver")) %>%
+  ggplot(aes(n, fct_reorder(PN2, n)))+
+  geom_col(fill = "#377eb8", alpha = 0.5)+
+  geom_text(aes(x = 20, label = TI), hjust = 0, size = 3)+
+  scale_x_continuous(breaks = seq(0, 1000, 200), 
+                   limits = c(0,1000), 
+                   expand = c(0,0))+
+  labs(x = "Citation count", y = "Publication") +
+  theme_classic()+
+  theme(plot.margin = unit(c(0,5,0,0), "mm"))
+```
+
+```{r}
+# use scopus for plotting total ciation counts (Fig 4a)
+p4_a <- df_bx %>%
+  filter(!is.na(TC_s)) %>%
+  slice_max(TC_s, n = 15) %>%
+  mutate(PN2 = case_when(PM == "32278004" ~ paste(PN2, "[a]"),
+                         .default = as.character(PN2))) %>%
+  mutate(PN2 = case_when(PM == "32044314" ~ paste(PN2, "[b]"),
+                         .default = as.character(PN2))) %>%
+  mutate(PN2 = case_when(PM == "33006093" ~ paste(PN2, "[c]"),
+                         .default = as.character(PN2))) %>%
+  mutate(TI = str_remove(TI, "LETTER TO THE EDITOR: ")) %>% 
+  mutate(TI = str_to_sentence(TI)) %>%
+  mutate(TI = str_remove(TI, "LETTER TO THE EDITOR: ")) %>%
+  mutate(TI = str_to_sentence(TI)) %>%
+  mutate(TI = str_replace(TI, "Mafld", "MAFLD")) %>%
+  mutate(TI = str_replace(TI, "mafld", "MAFLD")) %>%
+  mutate(TI = str_replace(TI, "nafld", "NAFLD")) %>%
+  mutate(TI = str_replace(TI, "covid-19", "COVID-19")) %>%
+  mutate(TI = str_replace(TI, "ckd", "CKD")) %>%
+  mutate(TI = str_replace(TI, "asian pacific association for the study of the liver", "Asian Pacific Association for the Study of the Liver")) %>%
+  mutate(TI = str_replace(TI, "kupffer", "Kupffer")) %>%
+  ggplot(aes(TC_s, fct_reorder(PN2, TC_s))) +
+  geom_col(fill = "#ff7f00", alpha = 0.5, width = 0.7)+
+  geom_text(aes(x = 2000/50, label = TI), hjust = 0, vjust= 0.5, size = 2.8)+
+  scale_x_continuous(breaks = seq(0, 2000, 500), 
+                   limits = c(0,2000), 
+                   expand = c(0,0))+
+  labs(x = "Citation count in Scopus", y = "Publication", tag = "a") +
+  theme_classic()+
+  theme(plot.tag = element_text(size = 12, face="bold"),
+         axis.title = element_text(size = 8, face = "bold"),
+         axis.text.x = element_text(size = 8, colour = "black"),
+         axis.text.y = element_text(size = 8, colour = "black"),
+         axis.line = element_line(linewidth = 0.3, colour = "black"),
+         axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+         plot.margin = unit(c(0,5,0,0), "mm"))
+```
+
+```{r}
+# plot citation counts from MAFLD literature (Fig 4b)
+p4_b <- ws_cr %>% 
+  count(CR_di) %>%
+  left_join(df_bx %>% select(TI, PY, PM, PN2, PN3, UI), by = join_by(CR_di == UI)) %>%
+  slice_max(n, n = 15) %>%
+  mutate(PN2 = case_when(PM == "32278004" ~ "Eslam M (2020) [a]",
+                   PM == "32044314" ~ "Eslam M (2020) [b]",
+                   PM == "33006093" ~ "Eslam M (2020) [c]",
+                   .default = as.character(PN2))) %>%
+  mutate(TI = str_to_sentence(TI)) %>%
+  mutate(TI = str_replace(TI, "Mafld", "MAFLD")) %>%
+  mutate(TI = str_replace(TI, "mafld", "MAFLD")) %>%
+  mutate(TI = str_replace(TI, "nafld", "NAFLD")) %>%
+  mutate(TI = str_replace(TI, "covid-19", "COVID-19")) %>%
+  mutate(TI = str_replace(TI, "ckd", "CKD")) %>%
+  mutate(TI = str_replace(TI, "asian pacific association for the study of the liver", "Asian Pacific Association for the Study of the Liver")) %>%
+  mutate(TI = str_replace(TI, "latin american association for the study of the liver", "Latin American Association for the Study of the Liver")) %>%
+  mutate(TI = str_replace(TI, "aleh", "ALEH")) %>%
+  ggplot(aes(n, fct_reorder(PN2, n)))+
+  geom_col(fill = "#377eb8", alpha = 0.5, width = 0.7)+
+  geom_text(aes(x = 2000/50, label = TI), hjust = 0, size = 2.8)+
+  scale_x_continuous(breaks = seq(0, 2000, 500), 
+                   limits = c(0,2000), 
+                   expand = c(0,0))+
+  labs(x = "Citation count from MAFLD literature", y = "Publication", tag = "b") +
+  theme_classic()+
+   theme(plot.tag = element_text(size = 12, face="bold"),
+         axis.title = element_text(size = 8, face = "bold"),
+         axis.text.x = element_text(size = 8, colour = "black"),
+         axis.text.y = element_text(size = 8, colour = "black"),
+         axis.line = element_line(linewidth = 0.3, colour = "black"),
+         axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+         plot.margin = unit(c(0,5,0,0), "mm"))
+```
+
+```{r}
+# combine plot and save
+p4 <- p4_a + p4_b + plot_layout(ncol = 1, nrow = 2)
+ggsave("figure/Fig3.pdf", p4, width = 174, height = 150, unit = "mm")
+```
+
+```{r}
+# co-citation network analysis
+ws_cr %>%
+  select(CR_di, UI) %>%
+  count(CR_di, UI) %>%
+  rename(from = "CR_di", to = "UI", count = "n") %>%
+  count(count)
+# all 1
+```
+
+```{r}
+# co-citation assumes that each publication in "to" contains more than one reference
+# select publication ("to") with more than one reference
+
+cr_edgelist <- cr_edgelist %>%
+  group_by(to) %>%
+  filter(n() >1)
+```
+
+```{r}
+# convert edgelist into matrix by changing into wide format
+cr_mat <- cr_edgelist %>%
+  group_by(to) %>%
+  filter(n() >1) %>%
+  ungroup() %>%
+  pivot_wider(names_from = to, values_from = n) %>%
+  column_to_rownames(var = "from") %>%
+  mutate(across(everything(), ~replace_na(.x, 0))) %>%
+  as.matrix()
+```
+
+```{r}
+# define function for full counting (the same as previous analysis)
+full_count <- function(A){
+  U <- A %*% t(A)
+  diag(U) <- 0
+  return(U)
+}
+```
+
+```{r}
+# create co-citation matrix
+adjm_cr_full <- full_count(cr_mat)
+```
+
+```{r}
+# create igraph object for co-citation netowrk
+gr_cr_full <- graph_from_adjacency_matrix(adjm_cr_full, 
+                                    mode = "undirected", 
+                                    weighted = TRUE,
+                                    diag = FALSE,
+                                    add.colnames = NULL,
+                                    add.rownames = NA)
+```
+
+```{r}
+# convert igraph object into tidygraph
+tbl_gr_cr_full <- as_tbl_graph(gr_cr_full)
+```
+
+```{r}
+# add UI, publication name, and year to the nodes
+tbl_gr_cr_full <- tbl_gr_cr_full %>%
+  activate(nodes) %>%
+  left_join(df_bx %>% select(UI, PN2, PY), by = join_by(name == UI))
+```
+
+```{r}
+# check for isolated nodes
+tbl_gr_cr_full %>%
+  activate(nodes) %>%
+  mutate(isolated = node_is_isolated()) %>%
+  as_tibble() %>%
+  filter(isolated == TRUE)
+```
+
+```{r}
+# check for nodes with zero degree
+tbl_gr_cr_full %>%
+  activate(nodes) %>%
+  mutate(degree = centrality_degree(weights = weight)) %>%
+  filter(degree == 0) %>%
+  as_tibble()
+# 0
+```
+
+```{r}
+# remove unconnected nodes (degree = 0)
+tbl_gr_cr_full <- tbl_gr_cr_full %>%
+  activate(nodes) %>%
+  mutate(degree = centrality_degree(weights= weight))
+```
+
+```{r}
+# count the total number of publications in co-citation network
+tbl_gr_cr_full %>% activate(nodes) %>% as_tibble() %>% nrow()
+# 722
+```
+
+```{r}
+# detect communities by Leiden algorithem, optimise modularity
+set.seed(1)
+tbl_gr_cr_full <- tbl_gr_cr_full %>%
+  mutate(group = as.character(group_leiden(weights = weight,
+                                           objective_function = "modularity")))
+```
+
+```{r}
+# check modularity
+tbl_gr_cr_full %>%
+  activate(nodes) %>%
+  mutate(modularity = graph_modularity(group=as.factor(group), weights = weight)) %>% 
+  pull(modularity) %>% 
+  head(1)
+```
+
+```{r}
+# check publication counts in each group
+tbl_gr_cr_full %>%
+  activate(nodes) %>%
+  as_tibble() %>%
+  count(group) %>%
+  arrange(desc(n))
+```
+
+```{r}
+# rename 5 major groups
+# 1: CVD risk and mortality -> B
+# 2: miscellaneous -> D
+# 3: redefinition -> A
+# 4: epidemiology -> C
+# 5: COVID-19 -> E
+
+tbl_gr_cr_full <- tbl_gr_cr_full %>%
+  mutate(group = case_when(group == 1 ~ "B",
+                           group == 2 ~ "D",
+                           group == 3 ~ "A",
+                           group == 4 ~ "C",
+                           group == 5 ~ "E",
+                           .default = as.character(group))) %>%
+  mutate(group = factor(group, levels  = LETTERS[1:5]))
+```
+
+```{r}
+# count the number of publications in 5 major groups
+tbl_gr_cr_full %>%
+  activate(nodes) %>%
+  as_tibble() %>%
+  filter(group %in% c(LETTERS[1:5])) %>% nrow()
+# 713
+```
+
+```{r}
+# create label for top 10 connected papers in each group
+cr_label_fun <- function(x){
+  tbl_gr_cr_full %>%
+  activate(nodes) %>% 
+  as_tibble() %>%
+  filter(group == x) %>%
+  slice_max(degree, n = 10) %>%
+  arrange(desc(degree)) %>%
+  mutate(number = row_number()) %>%
+  mutate(label = paste0(as.character(x), number)) %>%
+  mutate(order = c(10:1)) %>%
+  select(name, number, label, order)
+}
+```
+
+```{r}
+# create a dataframe with labels
+cr_label <- map(LETTERS[1:5], cr_label_fun) |> list_rbind()
+```
+
+```{r}
+# add labels to the nodes in the tidygraph
+tbl_gr_cr_full <- tbl_gr_cr_full %>%
+  activate(nodes) %>%
+  left_join(cr_label, by = join_by(name))
+```
+
+```{r}
+# create a dataframe of publications in co-citation network with labels 
+cr_full_label <- tbl_gr_cr_full %>%
+  activate(nodes) %>%
+  as_tibble() %>%
+  left_join(df_bx %>% select(TI, AU_sur, AU_for, UI), by = join_by(name == UI)) %>%
+  mutate(AU = paste(str_to_title(AU_sur), AU_for))
+```
+
+```{r}
+# edit label for plotting
+cr_full_label <- cr_full_label %>%
+  mutate(PN2_label = case_when(!is.na(label)~ (glue("<b>{label}</b>: {PN2}")),
+                               .default = NA))
+```
+
+```{r}
+# create graph layout with lgl (large graph layout)
+set.seed(1)
+cr_layout <- tbl_gr_cr_full %>%
+             activate(nodes) %>%
+             filter(group %in% LETTERS[1:5]) %>%
+             create_layout(layout = "lgl", maxiter = 500)
+```
+
+```{r}
+# plot co-citaion network (Fig 5a)
+p5_a <- ggraph(cr_layout)+
+  geom_edge_bundle_path2(aes(colour = node.group),
+                         n = 5,
+                         max_distortion = 5,
+                         tension = 0.8,
+                         alpha = 0.1,
+                         linewidth = 0.3,
+                         show.legend = FALSE) +
+  scale_edge_colour_manual(values = c("#377eb8", "#ff7f0e", "#4daf4a", "#e41a1c", "#984ea3"))+
+  geom_node_point(aes(size = degree), fill = "white",
+                  colour = "white", shape = 21, stroke = 0.6)+
+  geom_node_point(aes(fill = group, size = degree),
+                  alpha = 0.9,
+                  colour = "black", shape = 21, stroke = 0.3)+
+  geom_node_text(aes(filter = group %in% c("B"), label = number),
+                 size = 2.2,
+                 alpha = 1,
+                 colour = "black")+
+  geom_node_text(aes(filter = group %in% c("A","C", "D", "E"), label = number), 
+                 size = 2.2,
+                 alpha = 0.9,
+                 colour = "white")+
+  scale_fill_manual(values = c("#377eb8", "#ff7f0e", "#4daf4a", "#e41a1c", "#984ea3"),
+                    name = "Publication group")+
+  scale_size(range = c(2, 5), guide = "none")+
+  guides(size = "none",
+         fill = guide_legend(override.aes = list(size = 2.8, alpha = 1)))+
+  labs(tag = "a")+
+  theme_void()+
+  theme(plot.tag = element_text(size = 12, face = "bold", colour = "black"),
+        legend.direction = "horizontal",
+        legend.position = "inside",
+        legend.position.inside = c(0.5, 0.01),
+        legend.title = element_text(size = 8, face = "bold"),
+        legend.text = element_text(size = 8))
+        # plot.margin = unit(c(0,0,0,0), "cm"))
+```
+
+```{r}
+# create a dataframe for publication counts in each group for labelling
+cr_group_counts <- tbl_gr_cr_full %>%
+  activate(nodes) %>%
+  as_tibble() %>%
+  count(group) %>%
+  filter(group %in% LETTERS[1:5]) %>%
+  rename(n_pub = "n")
+```
+
+```{r}
+# plot annual publication counts in each group
+p5_b <- cr_full_label %>%
+  filter(group %in% LETTERS[1:5]) %>%
+  group_by(group, PY) %>%
+  summarise(n = n()) %>%
+  left_join(cr_group_counts, by = join_by(group)) %>%
+  mutate(group = str_c("<b>", group, "</b>", " (", n_pub, ")")) %>%
+  ggplot(aes(as.factor(PY), n, fill = group))+
+  geom_col(width = 0.7)+
+  facet_wrap(vars(group), nrow = 1, scales = "free_y")+
+  scale_y_continuous(breaks = seq(0, 150, 50), 
+                     limits = c(0,150), 
+                     expand = c(0,0))+
+  scale_fill_manual(values = c("#377eb8", "#ff7f0e", "#4daf4a", "#e41a1c", "#984ea3"), 
+                    guide = "none")+
+  geom_text(aes(label = n),
+            nudge_y = 3,
+            vjust = 0,
+            size = 2.8)+
+  labs(x = "Year", y = "Publication count", tag = "b") +
+  theme_classic()+
+  theme(plot.tag = element_text(size = 12, face="bold"),
+        axis.title = element_text(size = 8, face="bold"),
+        axis.text.x = element_text(size = 8, colour = "black", angle = 90, vjust = 0.5),
+        axis.text.y = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        strip.background = element_blank(),
+        strip.text = element_markdown(size = 8),
+        plot.margin = unit(c(0,5,0,0), "mm"))
+```
+
+```{r}
+# plot the results of co-citation network analysis (Fig 4)
+p5 <- free(p5_a) + free(p5_b)+ plot_layout(ncol = 1, heights = c(3, 1))
+ggsave("figure/Fig4.pdf", plot = p5, width = 174, height = 234, unit = "mm")
+```
+
+```{r}
+# plot key publications in group A
+p6_a <- cr_full_label %>%
+  filter(group == "A" & !is.na(label)) %>%
+  mutate(TI = str_to_sentence(TI)) %>%
+  mutate(TI = str_replace(TI, "Mafld", "MAFLD")) %>%
+  mutate(TI = str_replace(TI, "mafld", "MAFLD")) %>%
+  mutate(TI = str_replace(TI, "nafld", "NAFLD")) %>%
+  mutate(TI = str_replace(TI, "asian pacific association for the study of the live", "Asian Pacific Association for the Study of the Liver")) %>%
+  mutate(TI = str_replace(TI, "ckd", "CKD")) %>%
+  mutate(TI = str_replace(TI, "latin american association for the study of the liver", "Latin American Association for the Study of the Liver")) %>%
+  mutate(TI = str_replace(TI, "aleh", "ALEH")) %>%
+  ggplot(aes(degree, fct_reorder(PN2_label, order))) +
+  geom_col(fill = "#377eb8", width = 0.7, alpha = 0.5)+
+  geom_text(aes(x = 6000/50, label = TI), hjust = 0, vjust = 0.5, size = 2.8)+
+  scale_x_continuous(breaks = seq(0, 6000, 1000), 
+                   limits = c(0,6000), 
+                   expand = c(0,0))+
+  labs(x = "Strength", y = "Publication", tag = "a") +
+  theme_classic()+
+  theme(plot.tag = element_text(size = 12, face="bold"),
+        axis.title = element_text(size = 8, face="bold"),
+        axis.text.x = element_text(size = 8, colour = "black"),
+        axis.text.y = element_markdown(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        plot.margin = unit(c(0,5,0,0), "mm"))
+```
+
+```{r}
+# plot key publications in group B
+p6_b <- cr_full_label %>%
+  filter(group == "B" & !is.na(label)) %>%
+  mutate(TI = str_to_sentence(TI)) %>%
+  mutate(TI = str_replace(TI, "Mafld", "MAFLD")) %>%
+  mutate(TI = str_replace(TI, "mafld", "MAFLD")) %>%
+  mutate(TI = str_replace(TI, "Nafld", "NAFLD")) %>%
+  mutate(TI = str_replace(TI, "nafld", "NAFLD")) %>%
+  mutate(TI = str_replace(TI, "ckd", "CKD")) %>%
+  mutate(PN2_label = str_replace(PN2_label, "Van KLEEF", "van Kleef"))%>%
+  ggplot(aes(degree, fct_reorder(PN2_label, order))) +
+  geom_col(fill = "#ff7f00", width = 0.7, alpha = 0.5)+
+  geom_text(aes(x = 2500/50, label = TI), hjust = 0, vjust = 0.5, size = 2.8)+
+  scale_x_continuous(breaks = seq(0, 2500, 500), 
+                   limits = c(0, 2500), 
+                   expand = c(0, 0))+
+  labs(x = "Strength", y = "Publication", tag = "b") +
+  theme_classic()+
+  theme(plot.tag = element_text(size = 12, face="bold"),
+        axis.title = element_text(size = 8, face="bold"),
+        axis.text.x = element_text(size = 8, colour = "black"),
+        axis.text.y = element_markdown(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        plot.margin = unit(c(0,5,0,0), "mm"))
+```
+
+```{r}
+# plot key publications in group C
+p6_c <- cr_full_label %>%
+  filter(group == "C" & !is.na(label)) %>%
+  mutate(TI = str_to_sentence(TI)) %>%
+  mutate(TI = str_replace(TI, "Mafld", "MAFLD")) %>%
+  mutate(TI = str_replace(TI, "mafld", "MAFLD")) %>%
+  mutate(TI = str_replace(TI, "nafld", "NAFLD")) %>%
+  mutate(TI = str_replace(TI, "china", "China")) %>%
+  mutate(TI = str_replace(TI, "fibrosis-4", "Fibrosis-4")) %>%
+  mutate(TI = str_replace(TI, "turkish", "Turkish")) %>%
+  ggplot(aes(degree, fct_reorder(PN2_label, order))) +
+  geom_col(fill = "#4daf4a", width = 0.7, alpha = 0.5)+
+  geom_text(aes(x = 1500/50, label = TI), hjust = 0, vjust = 0.5, size = 2.8)+
+  scale_x_continuous(breaks = seq(0, 1500, 500), 
+                     limits = c(0,1500), 
+                     expand = c(0,0))+
+  labs(x = "Strength", y = "Publication", tag = "c") +
+  theme_classic()+
+  theme(plot.tag = element_text(size = 12, face="bold"),
+        axis.title = element_text(size = 8, face="bold"),
+        axis.text.x = element_text(size = 8, colour = "black"),
+        axis.text.y = element_markdown(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        plot.margin = unit(c(0,5,0,0), "mm"))
+```
+
+```{r}
+# plot key publications in group D
+p6_d <- cr_full_label %>%
+  filter(group == "D" & !is.na(label)) %>%
+  arrange(degree, desc(PY)) %>%
+  mutate(PN2_label = case_when(name == "10.1111/apt.15989" ~ "<b>D8</b>: O'Gorman P (2020)",
+                          .default = as.character(PN2_label))) %>%
+  mutate(TI = str_remove(TI, "LETTER TO THE EDITOR: ")) %>%
+  mutate(TI = str_to_sentence(TI)) %>%
+  mutate(TI = str_replace(TI, "Mafld", "MAFLD")) %>%
+  mutate(TI = str_replace(TI, "mafld", "MAFLD")) %>%
+  mutate(TI = str_replace(TI, "Nafld", "NAFLD")) %>%
+  mutate(TI = str_replace(TI, "nafld", "NAFLD")) %>%
+  ggplot(aes(degree, fct_reorder(PN2_label, order))) +
+  geom_col(fill = "#e41a1c", width = 0.7, alpha = 0.5)+
+  geom_text(aes(x = 500/50, label = TI), hjust = 0, vjust = 0.5, size = 2.8)+
+  scale_x_continuous(breaks = seq(0, 500, 100), 
+                     limits = c(0,500), 
+                     expand = c(0,0))+
+  labs(x = "Strength", y = "Publication", tag = "d") +
+  theme_classic()+
+  theme(plot.tag = element_text(size = 12, face="bold"),
+        axis.title = element_text(size = 8, face="bold"),
+        axis.text.x = element_text(size = 8, colour = "black"),
+        axis.text.y = element_markdown(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        plot.margin = unit(c(0,5,0,0), "mm"))
+```
+
+```{r}
+# plot key publications in group E
+p6_e <- cr_full_label %>%
+  filter(group == "E" & !is.na(label)) %>%
+  mutate(TI = str_remove(TI, "LETTER TO THE EDITOR: ")) %>%
+  mutate(TI = str_to_sentence(TI)) %>%
+  mutate(TI = str_replace(TI, "Mafld", "MAFLD")) %>%
+  mutate(TI = str_replace(TI, "mafld", "MAFLD")) %>%
+  mutate(TI = str_replace(TI, "covid-19", "COVID-19")) %>%
+  ggplot(aes(degree, fct_reorder(PN2_label, order))) +
+  geom_col(fill = "#984ea3", width = 0.7, alpha = 0.5)+
+  geom_text(aes(x = 500/50, label = TI), hjust = 0, vjust = 0.5, size = 2.8)+
+  scale_x_continuous(breaks = seq(0, 500, 100), 
+                     limits = c(0,500), 
+                     expand = c(0,0))+
+  labs(x = "Strength", y = "Publication", tag = "e") +
+  theme_classic()+
+  theme(plot.tag = element_text(size = 12, face="bold"),
+        axis.title = element_text(size = 8, face="bold"),
+        axis.text.x = element_text(size = 8, colour = "black"),
+        axis.text.y = element_markdown(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        plot.margin = unit(c(0,5,0,0), "mm"))
+```
+
+```{r}
+# plot key publications in co-citation network (Fig 5)
+p6 <- p6_a + p6_b + p6_c + p6_d + p6_e + plot_layout(ncol = 1, nrow =5,  heights = rep(1, times = 5))
+ggsave("figure/Fig5.pdf", p6, width = 174, height = 234, unit = "mm")
+```
+
+```{r}
+save.image("rdata/08_co-citation.RData")
+```

@@ -1,0 +1,874 @@
+---
+title: "MAFLD"
+output: html_document
+date: "2024-06-17"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(bibliometrix)
+library(tidyverse)
+library(ggtext)
+library(glue)
+library(ggrepel)
+library(countrycode)
+library(sf)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(rmapshaper)
+library(CoordinateCleaner)
+library(igraph)
+library(ggraph)
+library(tidygraph)
+library(patchwork)
+library(cowplot)
+```
+
+```{r}
+# load workspace
+load("rdata/05_country.RData")
+```
+
+```{r}
+# prepare dataframe for keyword analysis
+df_de <- df_bx %>% select(TI, DE, SO, J9, PY, DB, PN2, PN3, UI)
+```
+
+```{r}
+# check ENG SPA in pubmed
+pubmed_mafld_ui %>% filter(LA == "ENG SPA") %>% select(TI, DI, DE)
+# all have English keywords (Spanish ones as well)
+```
+
+```{r}
+# check the word "METABÓLICA"
+df_de %>% filter(str_detect(DE, "METABÓLICA")) %>% select(TI, DE, UI)
+
+# 10.20960/nh.04635 has keywords only in Spanish
+# the remaining three have keywords both in English and Spanish
+```
+
+```{r}
+# check 10.20960/nh.04635
+df_bx %>% filter(UI =="10.20960/nh.04635")
+
+# main text is in English
+# English keywords are available in the origianl paper
+# Keywords: Metabolic syndrome, Metabolic associated, fatty liver disease, S-adenosyl-L-methionine, N-acetylcysteine. Thioctic acid, Vitamin B6.
+```
+
+```{r}
+# manually change the keywords in English
+df_de <- df_de %>% 
+  mutate(DE = case_when(UI == "10.20960/nh.04635" ~ str_to_upper("Metabolic syndrome; Metabolic associated fatty liver disease; S-adenosyl-L-methionine; N-acetylcysteine; Thioctic acid; Vitamin B6"),
+                        .default = as.character(DE)))
+```
+
+```{r}
+# count the number of publications with keywords
+df_de %>% filter(!is.na(DE)) %>% count()
+
+# 1195
+```
+
+```{r}
+# separate keyword column into long format (delimiter ;)
+df_de_long <- df_de %>%
+  filter(!is.na(DE)) %>%
+  separate_longer_delim(DE, delim = ";") %>%
+  mutate(DE = str_remove(DE, "^\\s")) %>%
+  mutate(DE = str_remove(DE, "^\\*"))
+```
+
+```{r}
+df_de_long 
+```
+
+```{r}
+df_de_long%>% filter(str_detect(DE, "METABOLIC")) %>% count(DE) %>% arrange(desc(n))
+```
+
+```{r}
+df_de_long %>% filter(DE == "METABOLIC DYSFUNCTION-ASSOCIATED FATTY LIVER DISEASE4") %>% pull(UI)
+"10.1186/s12889-023-15467-4"
+```
+
+```{r}
+df_de_long %>% filter(UI == "10.1186/s12889-023-15467-4") 
+```
+
+
+```{r}
+df_de_long <- df_de_long %>% 
+  mutate(DE = case_when(UI == "10.1186/s12889-023-15467-4" ~ str_remove(DE, "[:digit:]$"),
+                        .default = as.character(DE)))
+```
+
+
+```{r}
+df_de_long %>% count(DE) %>% arrange(desc(n))
+```
+
+```{r}
+# check MAFLD or NAFLD
+df_de_long %>%
+  filter(str_detect(DE, "\\(MAFLD\\)|\\(NAFLD\\)")) %>%
+  count(DE)
+```
+
+```{r}
+# change XXX (MAFLD) to MAFLD (except "NAFLD/NASH (MAFLD)")
+# change XXX (NAFLD) to NAFLD
+df_de_long <- df_de_long %>%
+  mutate(DE = case_when(str_detect(DE, "\\(MAFLD\\)") & DE != "NAFLD/NASH (MAFLD)" ~ "MAFLD",
+                        str_detect(DE, "\\(NAFLD\\)") ~ "NON-ALCOHOLIC FATTY LIVER DISEASE",
+                        .default = as.character(DE))) 
+```
+
+```{r}
+df_de_long %>% count(DE) %>% arrange(desc(n))
+```
+
+```{r}
+df_de_long %>% filter(str_detect(DE, "DISEASE")) %>% count(DE)
+
+df_de_long %>% filter(str_detect(DE, "DISEASES")) %>% count(DE)
+
+df_de_long %>% filter(str_detect(DE, "DISORDER")) %>% count(DE)
+
+df_de_long %>% filter(str_detect(DE, "DISORDERS")) %>% count(DE)
+```
+
+```{r}
+# diseases -> disease
+# then fix AASLD
+df_de_long <- df_de_long %>%
+  mutate(DE = str_remove(DE, "(?<=DISEASE)S$")) %>%
+  mutate(DE = case_when(DE == "AASLD, AMERICAN ASSOCIATION FOR THE STUDY OF LIVER DISEASE" ~ "AASLD, AMERICAN ASSOCIATION FOR THE STUDY OF LIVER DISEASES",
+                        .default= as.character(DE)))
+```
+
+```{r}
+# disorders -> disorder
+df_de_long <- df_de_long %>%
+  mutate(DE = str_replace(DE, "DISORDERS", "DISORDER"))
+```
+
+```{r}
+df_de_long %>% filter(str_detect(DE, "DISEASE")) %>% count(DE)
+
+df_de_long %>% filter(str_detect(DE, "DISORDER")) %>% count(DE) %>% arrange(desc(n))
+```
+
+```{r}
+df_de_long %>% count(DE) %>% filter(str_detect(DE, "DISEASE"))
+#138
+```
+
+```{r}
+df_de_long %>% filter(str_detect(DE, "FATTY LIVER DISEASE")) %>% count(DE)
+```
+
+```{r}
+# fatty liver disease
+
+df_de_long <- df_de_long %>%
+  mutate(DE = case_when(DE %in% c("FATTY LIVER DISEASE (FLD)", "FLD, FATTY LIVER DISEASE") ~ "FATTY LIVER DISEASE",
+                        DE == "METABOLIC DYSFUNCTION-ASSOCIATED FATTY LIVER DISEASE4" ~ "METABOLIC DYSFUNCTION-ASSOCIATED FATTY LIVER DISEASE",
+                        .default = as.character(DE)))
+```
+
+```{r}
+# check "MAFLD (" or "MAFLD, "
+df_de_long %>% filter(str_detect(DE, "^MAFLD(?=\\s\\(|,\\s)")) %>% count(DE)
+```
+
+```{r}
+# change these to "MAFLD"
+df_de_long <- df_de_long %>%
+  mutate(DE = case_when(str_detect(DE, "^MAFLD(?=\\s\\(|,\\s)") ~ "MAFLD",
+                        .default = as.character(DE)))
+```
+
+```{r}
+# check for MAFLD
+df_de_long %>% filter(str_detect(DE, "MAFLD")) %>% count(DE)
+# no more formatting or "MAFLD"
+```
+
+```{r}
+# check words containing "disease"
+df_de_long %>% filter(str_detect(DE, "DISEASE")) %>% count(DE) 
+# 125
+```
+
+```{r}
+df_de_long %>% filter(str_detect(DE, "^METABOLIC")) %>% count(DE) 
+```
+
+```{r}
+# start with "METABOLIC " or "METABOLIC-" and end with "DISEASE"
+
+df_de_long %>% filter(str_detect(DE, "^METABOLIC[\\s-]") & str_detect(DE, "DISEASE$")) %>% count(DE)
+```
+
+```{r}
+# select MAFLD full spelling for formatting
+mafld_de <- df_de_long %>% 
+  count(DE) %>%
+  filter(str_detect(DE, "^METABOLIC[\\s-]") & str_detect(DE, "DISEASE$")) %>%
+  filter(!DE %in% c("METABOLIC DISEASE", 
+                    "METABOLIC DYSFUNCTION FATTY LIVER DISEASE",
+                    "METABOLIC DYSFUNCTION-ASSOCIATED LIVER DISEASE",
+                    "METABOLIC DYSFUNCTION-ASSOCIATED STEATOTIC LIVER DISEASE",
+                    "METABOLIC LIVER DISEASE",
+                    "METABOLIC-ASSOCIATED LIVER DISEASE",
+                    "METABOLIC-DYSFUNCTION FATTY LIVER DISEASE",
+                    "METABOLIC-DYSFUNCTION RELATED LIVER DISEASE",
+                    "METABOLIC-RELATED FATTY LIVER DISEASE")) %>%
+  pull(DE)
+
+# 23-9 = 14
+```
+
+```{r}
+# change these selected keywords to MAFLD
+df_de_long <- df_de_long %>%
+  mutate(DE = case_when(DE %in% mafld_de ~ "MAFLD",
+                   .default = as.character(DE)))
+```
+
+```{r}
+# check words including "METABOLIC"
+df_de_long %>% filter(str_detect(DE, "METABOLIC")) %>% count(DE)
+# no more words need formatting for MAFLD
+```
+
+```{r}
+# check NAFLD
+df_de_long %>% filter(str_detect(DE, "^NAFLD(?=\\s\\(|,\\s)")) 
+```
+
+```{r}
+# change all to NAFLD
+df_de_long <- df_de_long %>%
+  mutate(DE = case_when(str_detect(DE, "^NAFLD(?=\\s\\(|,\\s)") ~ "NON-ALCOHOLIC FATTY LIVER DISEASE",
+                        .default = as.character(DE)))
+```
+
+```{r}
+# check "NON XXX DISEASE"
+df_de_long %>% count(DE) %>% filter(str_detect(DE, "^NON") & str_detect(DE, "DISEASE"))
+```
+
+```{r}
+# select NAFLD term for formatting
+nafld_de <- c("NON ALCOHOLIC FATTY LIVER DISEASE",
+              "NON-ALCOHOLIC FATTY LIVER DISEASE",
+              "NON-ALCOHOLIC FATTY LIVER DISEASE - NAFLD",
+              "NONALCOHOLIC FATTY LIVER DISEASE")
+```
+
+```{r}
+# format "NON ALCOHOLIC FATTY LIVER DISEASE"
+df_de_long <- df_de_long %>%
+  mutate(DE = case_when(DE %in% nafld_de ~ "NON-ALCOHOLIC FATTY LIVER DISEASE",
+                        .default = as.character(DE)))
+```
+
+```{r}
+# check "NAFLD"
+df_de_long %>% count(DE) %>% filter(str_detect(DE, "NAFLD")) %>% count(DE)
+# only change "NAFLD" (exact match)
+```
+
+```{r}
+# NAFLD -> full spell
+df_de_long <- df_de_long %>%
+  mutate(DE = case_when(DE == "NAFLD" ~ "NON-ALCOHOLIC FATTY LIVER DISEASE",
+                        .default = as.character(DE)))
+```
+
+
+```{r}
+# check NASH
+df_de_long %>% filter(str_detect(DE, "NON") & str_detect(DE, "STEATOHEPATITIS")) %>% count(DE)
+# change all to NASH
+
+df_de_long %>% filter(str_detect(DE, "NASH")) %>% count(DE)
+# also change "NASH"
+```
+
+
+```{r}
+# NASH terms
+nash_de <- df_de_long %>% filter(str_detect(DE, "NON") & str_detect(DE, "STEATOHEPATITIS")) %>% count(DE) %>%pull(DE)
+
+nash_de <- c(nash_de, "NASH")
+```
+
+```{r}
+# NASH -> full spell
+df_de_long <- df_de_long %>%
+  mutate(DE = case_when(DE %in% nash_de ~ "NON-ALCOHOLIC STEATOHEPATITIS",
+                        .default = as.character(DE)))
+```
+
+```{r}
+#check NAFL
+df_de_long %>% filter(str_detect(DE, "ALCOHOLIC FATTY LIVER$")) 
+df_de_long %>% filter(str_detect(DE, "NAFL"))
+```
+
+```{r}
+# check for HCC
+df_de_long %>% filter(str_detect(DE, "HEPATOCELLULAR CARCINOMA")) %>% count(DE)
+df_de_long %>% filter(str_detect(DE, "HCC")) %>% count(DE)
+df_de_long %>% filter(str_detect(DE, "CARCINOMA")) %>% count(DE)
+```
+
+```{r}
+# create HCC term
+hcc_de <- c("HCC, HEPATOCELLULAR CARCINOMA",
+            "HEPATOCELLULAR CARCINOMA (HCC)",
+            "HCC",
+            "HEPATOCELLULAR CARCINOMA (HCC)",
+            "HEPATO-CELLULAR CARCINOMA")
+```
+
+```{r}
+# format HCC
+df_de_long <- df_de_long %>%
+  mutate(DE = case_when(DE %in% hcc_de ~ "HEPATOCELLULAR CARCINOMA",
+                        .default = as.character(DE)))
+```
+
+```{r}
+# check diabetes
+df_de_long %>% filter(str_detect(DE, "DIABETES")) %>% count(DE) %>% arrange(desc(n))
+df_de_long %>% filter(str_detect(DE, "DM")) %>% count(DE) %>% arrange(desc(n))
+```
+
+```{r}
+# diabetes terms
+dm_de <- c("DIABETES",
+        "DIABETES MELLITUS (DM)")
+
+t2dm_de <- c("TYPE 2 DIABETES",
+             "DIABETES MELLITUS TYPE 2",
+             "DIABETES MELLITUS, TYPE 2",
+             "TYPE 2 DIABETES MELLITUS (T2DM)",
+             "DIABETES MELLITUS TIPO 2",
+             "DIABETES TYPE 2",
+             "T2DM, TYPE 2 DIABETES MELLITUS",
+             "TYPE II DIABETES MELLITUS (T2DM)",
+             "TYPE-2 DIABETES",
+             "TYPE 2 DIABETES",
+             "T2DM")
+
+gdm_de <- c("GESTATIONAL DIABETES")
+
+predm_de <- c("PRE-DIABETES")
+```
+
+```{r}
+# format diabetes
+df_de_long <- df_de_long %>%
+  mutate(DE = case_when(DE %in% dm_de ~ "DIABETES MELLITUS",
+                        DE %in% t2dm_de ~ "TYPE 2 DIABETES MELLITUS",
+                        DE %in% gdm_de ~ "GESTATIONAL DIABETES MELLITUS",
+                        DE %in% predm_de ~ "PREDIABETES",
+                        .default = as.character(DE)))
+```
+
+```{r}
+# check metabolic syndrome
+df_de_long %>% filter(str_detect(DE, "METABOLIC SYNDROME")) %>% count(DE)
+```
+
+```{r}
+# format metabolic syndrome
+df_de_long <- df_de_long %>%
+  mutate(DE = case_when(DE %in% c("METABOLIC SYNDROME (METS)",
+                                  "METABOLIC SYNDROMES") ~ "METABOLIC SYNDROME",
+                        .default = as.character(DE)))
+```
+
+```{r}
+# check metbaolic disease
+df_de_long %>% filter(str_detect(DE, "METABOLIC DISEASE")) %>% count(DE)
+```
+
+```{r}
+# check cardiovascular or CVD
+df_de_long %>% filter(str_detect(DE, "CARDIOVASCULAR")) %>% count(DE) %>% arrange(desc(n))
+
+df_de_long %>% filter(str_detect(DE, "CVD")) %>% count(DE) %>% arrange(desc(n))
+```
+
+```{r}
+# format cardiovascular disease
+df_de_long <- df_de_long %>%
+  mutate(DE = case_when(DE %in% c("CARDIOVASCULAR DISEASES",
+                                  "CARDIOVASCULAR DISEASE (CVD)",
+                                  "CVD") ~ "CARDIOVASCULAR DISEASE",
+                        DE %in% c("CARDIOVASCULAR (CV) RISK",
+                                  "RISK CARDIOVASCULAR") ~ "CARDIOVASCULAR RISK",
+                        .default = as.character(DE)))
+```
+
+```{r}
+# check CKD
+df_de_long %>% filter(str_detect(DE, "CHRONIC KIDNEY DISEASE")) %>% count(DE) %>% arrange(desc(n))
+df_de_long %>% filter(str_detect(DE, "CKD")) %>% count(DE) %>% arrange(desc(n))
+```
+
+```{r}
+# format CKD
+df_de_long <- df_de_long %>%
+  mutate(DE = case_when(DE %in% c("CHRONIC KIDNEY DISEASE (CKD)", 
+                                  "CKD, CHRONIC KIDNEY DISEASE",
+                                  "CKD") ~ "CHRONIC KIDNEY DISEASE",
+                        .default = as.character(DE)))
+```
+
+```{r}
+# check COVID-19
+df_de_long %>% filter(str_detect(DE, "COVID")) %>% count(DE)
+df_de_long %>% filter(str_detect(DE, "SARS")) %>% count(DE)
+
+df_de_long %>% filter(str_detect(DE, "CORONAVIRUS")) %>% count(DE) 
+# this will be processed in by "COVID" and "SARS"
+```
+
+```{r}
+# COVID-19 terms
+covid_19_de <- df_de_long %>% filter(str_detect(DE, "COVID") & DE != "COVID-19 VACCINATION") %>% distinct(DE) %>% pull(DE)
+covid_19_de
+
+covid_19_de <- c(covid_19_de, "CORONAVIRUS DISEASE 2019")
+covid_19_de
+```
+
+```{r}
+# SARS-CoV-2 terms
+sars_cov_2_de <- df_de_long %>% filter(str_detect(DE, "SARS")) %>% distinct(DE) %>% pull(DE)
+sars_cov_2_de
+```
+
+```{r}
+# format COVID-19 and SARS-CoV-2
+df_de_long <- df_de_long %>%
+  mutate(DE = case_when(DE %in% covid_19_de ~ "COVID-19",
+                        DE %in% sars_cov_2_de ~ "SARS-COV-2",
+                        DE == "CORONAVIRUSES" ~ "CORONAVIRUS",
+                        .default = as.character(DE)))
+```
+
+```{r}
+# check AMPK
+df_de_long %>% filter(str_detect(DE, "AMP")) %>% count(DE) 
+df_de_long %>% filter(str_detect(DE, "AMPK")) %>% count(DE)
+df_de_long %>% filter(str_detect(DE, "ACTIVATED PROTEIN KINASE")) %>% count(DE)
+```
+
+```{r}
+ampk_de <- c("AMP ACTIVATED PROTEIN KINASE",
+             "AMP-ACTIVATED PROTEIN KINASE (AMPK)",
+             "AMPK, ADENOSINE MONO-PHOSPHATE-ACTIVATED PROTEIN KINASE")
+
+df_de_long <- df_de_long %>%
+  mutate(DE = case_when(DE %in% ampk_de ~ "AMPK",
+                        .default = as.character(DE)))
+```
+
+```{r}
+# check BMI
+df_de_long %>% filter(str_detect(DE, "BMI"))
+df_de_long %>% filter(str_detect(DE, "BODY MASS INDEX"))
+```
+
+```{r}
+# format BMI (body mass index)
+df_de_long <- df_de_long %>%
+  mutate(DE = case_when(DE %in% c("BMI",
+                                  "BMI, BODY MASS INDEX",
+                                  "BMI - BODY MASS INDEX") ~ "BODY MASS INDEX",
+                        .default = as.character(DE)))
+```
+
+```{r}
+# check NHANES
+df_de_long %>% filter(str_detect(DE, "NATIONAL HEALTH AND NUTRITION"))
+df_de_long %>% filter(str_detect(DE, "NATIONAL HEALTH AND NUTRITION") & !str_detect(DE, "III"))
+```
+
+```{r}
+#	NATIONAL HEALTH AND NUTRITION EXAMINATION SURVEY -> NHANES
+# exclude "NATIONAL HEALTH AND NUTRITION EXAMINATION SURVEYS III"
+nhanes_de <- df_de_long %>% filter(str_detect(DE, "NATIONAL HEALTH AND NUTRITION") & !str_detect(DE, "III")) %>% pull(DE)
+
+df_de_long <- df_de_long %>%
+  mutate(DE = case_when(DE %in% nhanes_de ~ "NHANES",
+                        .default = as.character(DE)))
+```
+
+```{r}
+# check chronic liver disease
+df_de_long %>% filter(str_detect(DE, "CLD"))
+df_de_long %>% filter(str_detect(DE, "CHRONIC LIVER DISEASE"))
+```
+
+```{r}
+# only change "CLD, CHRONIC LIVER DISEASE"
+df_de_long <- df_de_long %>%
+  mutate(DE = case_when(DE == "CLD, CHRONIC LIVER DISEASE" ~ "CHRONIC LIVER DISEASE",
+                        .default = as.character(DE)))
+```
+
+```{r}
+# check gut microbiota and related terms
+df_de_long %>% filter(str_detect(DE, "MICROBIOTA")) %>% count(DE)
+df_de_long %>% filter(str_detect(DE, "MICROBIOME")) %>% count(DE)
+df_de_long %>% filter(str_detect(DE, "AXIS")) %>% count(DE)
+```
+
+```{r}
+# format gut microbiota
+df_de_long <- df_de_long %>%
+  mutate(DE = case_when(DE %in% c("GUT MICROBIOTA (GM)", "GUT-MICROBIOTA")  ~ "GUT MICROBIOTA",
+                        .default = as.character(DE)))
+```
+
+```{r}
+# check transient elastography and related terms
+df_de_long %>% filter(str_detect(DE, "FIBROSCAN")) %>% count(DE)
+df_de_long %>% filter(str_detect(DE, "CAP")) %>% count(DE)
+df_de_long %>% filter(str_detect(DE, "CONTROLLED ATTENUATION PARAMETER")) %>% count(DE)
+df_de_long %>% filter(str_detect(DE, "TRANSIENT ELASTOGRAPHY")) %>% count(DE)
+```
+
+```{r}
+cap_de <- c("CAP",
+            "CAP, CONTROLLED ATTENUATION PARAMETER",
+            "CONTROLLED ATTENUATION PARAMETER (CAP)",
+            "CONTROLLED ATTENUATION PARAMETERS" )
+```
+
+```{r}
+# format these terms
+df_de_long <- df_de_long %>%
+  mutate(DE = case_when(DE =="FIBROSCAN®"  ~ "FIBROSCAN",
+                        DE %in% cap_de ~ "CONTROLLED ATTENUATION PARAMETER",
+                        DE == "TE, TRANSIENT ELASTOGRAPHY" ~ "TRANSIENT ELASTOGRAPHY",
+                        .default = as.character(DE)))
+```
+
+```{r}
+# check biomarker
+df_de_long %>% filter(str_detect(DE, "BIOMARKER")) %>% count(DE)
+```
+
+```{r}
+# format biomarkers (more common)
+df_de_long <- df_de_long %>%
+  mutate(DE = case_when(DE =="BIOMARKER"  ~ "BIOMARKERS",
+                        .default = as.character(DE)))
+```
+
+
+
+```{r}
+df_de_long %>%
+  count(DE) %>%
+  arrange(desc(n)) %>%
+  View()
+```
+
+```{r}
+# check chronic hepatitis B
+df_de_long %>% filter(str_detect(DE, "CHB")) %>% count(DE)
+df_de_long %>% filter(str_detect(DE, "CHRONIC HEPATITIS")) %>% count(DE)
+```
+
+```{r}
+df_de_long %>% filter(str_detect(DE, "CHB")) %>% View()
+```
+
+```{r}
+df_de_long <- df_de_long %>%
+  mutate(DE = case_when(DE %in% c("CHB", "CHB, CHRONIC HEPATITIS B")  ~ "CHRONIC HEPATITIS B",
+                        .default = as.character(DE)))
+```
+
+```{r}
+# check HBV
+df_de_long %>% filter(str_detect(DE, "HEPATITIS B VIRUS")) %>% count(DE)
+df_de_long %>% filter(str_detect(DE, "HBV")) %>% count(DE)
+```
+
+
+```{r}
+# change HBV
+df_de_long <- df_de_long %>% mutate(DE = case_when(DE %in% c("HEPATITIS B VIRUS (HBV)", "HBV")  ~ "HEPATITIS B VIRUS",
+                        .default = as.character(DE)))
+```
+
+
+```{r}
+df_de_long %>% filter(str_detect(DE, "INSULIN")) %>% count(DE)
+```
+
+```{r}
+df_de_long %>% filter(str_detect(DE, "MITOCHONDRION")) %>% View()
+```
+
+```{r}
+df_de_long <- df_de_long %>%
+  mutate(DE = case_when(DE == "MITOCHONDRION"  ~ "MITOCHONDRIA",
+                        .default = as.character(DE)))
+```
+
+```{r}
+df_de_long %>% filter(DE %in% c("RISK FACTOR", "RISK FACTORS"))
+```
+
+```{r}
+df_de_long <- df_de_long %>%
+  mutate(DE = case_when(DE == "RISK FACTOR"  ~ "RISK FACTORS",
+                        .default = as.character(DE)))
+```
+
+```{r}
+df_de_long %>% filter(str_detect(DE, "METABOLOMIC")) %>% count(DE)
+```
+
+```{r}
+df_de_long <- df_de_long %>%
+  mutate(DE = case_when(DE == "METABOLOMIC"  ~ "METABOLOMICS",
+                        .default = as.character(DE)))
+```
+
+```{r}
+df_de_long %>% filter(str_detect(DE, "ALANINE AMINOTRANSFERASE")) %>% count(DE)
+df_de_long %>% filter(str_detect(DE, "ALT")) %>% count(DE) %>% arrange(desc(n))
+```
+
+```{r}
+df_de_long %>% filter(str_detect(DE, "ADIPOKIN")) %>% count(DE) %>% arrange(desc(n))
+df_de_long %>% filter(str_detect(DE, "ADKIPOKINS")) %>% count(DE) %>% arrange(desc(n))
+```
+
+```{r}
+df_de_long %>% count(DE) %>% arrange(desc(n)) %>% View()
+
+```
+
+```{r}
+# plot frequent keywords
+df_de_long %>%
+  group_by(UI, DE) %>%
+  distinct() %>%
+  ungroup() %>%
+  count(DE) %>%
+  slice_max(n, n = 30) %>%
+  mutate(DE = str_to_sentence(DE)) %>%
+  mutate(DE = case_when(DE == "Mafld" ~ "MAFLD",
+                        DE == "Covid-19" ~ "COVID-19",
+                        DE == "Sars-cov-2" ~ "SARS-CoV-2",
+                        DE == "Nhanes" ~ "NHANES",
+                        .default = as.character(DE))) %>%
+  ggplot(aes(n, fct_reorder(DE, n), label = n))+
+  geom_col(fill = "#377eb8")+
+  geom_text(hjust = 0, vjust = 0.5, size = 3, nudge_x = 4.5)+
+  scale_x_continuous(breaks = seq(0, 900, 100), 
+                   limits = c(0,900), 
+                   expand = c(0,0))+
+  labs(x = "Count", y = "Author keywords") +
+  theme_classic()+
+  theme(plot.margin = unit(c(0,0.5,0,0), "cm"))
+```
+
+```{r}
+# extract common keywords appearing 10 or more times for network
+de_10 <- df_de_long %>% count(DE) %>% filter(n >= 10) %>% pull(DE)
+```
+
+```{r}
+# define function for full counting (same as country co-occurrence network)
+full_count <- function(A){
+  U <- A %*% t(A)
+  diag(U) <- 0
+  return(U)
+}
+```
+
+```{r}
+# create matrix for calculating co-occurrence
+# rows: DE (keyword), columns: UI (publications)
+mat_de_10 <- df_de_long %>%
+  filter(DE %in% de_10) %>%
+  select(DE, UI) %>%
+  group_by(UI, DE) %>%
+  distinct() %>%
+  ungroup() %>%
+  mutate(n = 1) %>%
+  arrange(DE) %>%
+  pivot_wider(names_from = UI, values_from = n) %>%
+  column_to_rownames(var = "DE") %>%
+  mutate(across(everything(), ~replace_na(.x, 0))) %>%
+  as.matrix()
+```
+
+```{r}
+# calculate adjacency matrix with full counting method
+adjm_de_10_full <- full_count(mat_de_10)
+```
+
+```{r}
+# create igraph object from adjacency matrix
+gr_de_10_full <- graph_from_adjacency_matrix(adjm_de_10_full, 
+                                    mode = "undirected", 
+                                    weighted = TRUE,
+                                    diag = FALSE,
+                                    add.colnames = NULL,
+                                    add.rownames = NA)
+```
+
+```{r}
+# convert igraph object into tidygraph
+tbl_gr_de_10_full <- as_tbl_graph(gr_de_10_full)
+```
+
+```{r}
+# count the number of keywords in the network
+tbl_gr_de_10_full %>%
+  activate(nodes) %>%
+  length()
+# 67
+```
+
+
+```{r}
+# detect communities by Leiden algorithem (keyword group)
+set.seed(0)
+tbl_gr_de_10_full <- tbl_gr_de_10_full %>%
+  activate(nodes) %>%
+  mutate(group = as.factor(group_leiden(weights = weight, objective_function = "modularity"))) %>%
+  mutate(degree = centrality_degree())
+```
+
+```{r}
+# inspect keyword group
+tbl_gr_de_10_full %>%
+  activate(nodes) %>%
+  as_tibble() %>%
+  count(group)
+```
+
+```{r}
+# recode communities
+tbl_gr_de_10_full <- tbl_gr_de_10_full %>%
+  activate(nodes) %>%
+  mutate(group = case_when(group == "1" ~ "A",
+                           group == "2" ~ "B",
+                           group == "3" ~ "C",
+                           group == "4" ~ "D",
+                           group == "5" ~ "E"))
+```
+
+```{r}
+# plot frequent keywords (Fig 2a)
+p3_a <- df_de_long %>%
+  group_by(UI, DE) %>%
+  distinct() %>%
+  ungroup() %>%
+  count(DE) %>%
+  slice_max(n, n = 20) %>%
+  ungroup() %>%
+  arrange(desc(n), DE) %>%
+  mutate(order = n():1) %>%
+  mutate(DE = str_to_sentence(DE)) %>%
+  mutate(DE = case_when(DE == "Mafld" ~ "MAFLD",
+                        DE == "Covid-19" ~ "COVID-19",
+                        .default = as.character(DE))) %>%
+  ggplot(aes(n, fct_reorder(DE, order)))+
+  geom_col(fill = "#f781bf", width = 0.7)+
+  geom_text(aes(label = n), hjust = 0, vjust = 0.5, size = 2.8, nudge_x = 900/150)+
+  scale_x_continuous(breaks = seq(0, 900, 100), 
+                   limits = c(0,900), 
+                   expand = c(0,0))+
+  labs(x = "Count", y = "Author keyword", tag = "a") +
+  theme_classic()+
+  theme(plot.margin = unit(c(0,0.5,0,0), "cm"),
+        strip.background = element_blank(),
+        strip.text = element_blank(),
+        plot.tag=element_text(size = 12, face="bold"),
+        axis.title = element_text(size = 8, face="bold"),
+        axis.text=element_text(size=8, colour = "black"),
+        axis.line=element_line(linewidth =0.3, colour = "black"),
+        axis.ticks = element_line(linewidth =0.3, colour = "black"))
+```
+
+```{r}
+# plot network (Fig 2b)
+set.seed(525)
+p3_b <- tbl_gr_de_10_full %>% 
+  activate(nodes) %>%
+  mutate(name = str_to_sentence(name)) %>%
+  mutate(name = case_when(name == "Mafld" ~ "MAFLD",
+                          name == "Non-alcoholic fatty liver disease" ~ "NAFLD",
+                          name == "Non-alcoholic steatohepatitis" ~ "NASH",
+                          name == "Hepatocellular carcinoma" ~ "HCC",
+                          name == "Diabetes mellitus" ~ "Diabetes",
+                          name == "Type 2 diabetes mellitus" ~ "Type 2 diabetes",
+                          name == "Covid-19" ~ "COVID-19",
+                          name == "Sars-cov-2" ~ "SARS-CoV-2",
+                          name == "Nhanes" ~ "NHANES",
+                          name == "Chronic hepatitis b" ~ "Chronic hepatitis B",
+                          name == "Hepatitis b virus" ~ "Hepatitis B virus",
+                          name == "Ampk" ~ "AMPK",
+                          # name == "Body mass index" ~ "BMI"
+                          # name == "Controlled attenuation parameter" ~ "CAP",
+                          # name == "Chronic kidney disease" ~ "CKD",
+                          .default = as.character(name))) %>%
+  ggraph(layout = "fr")+
+  geom_edge_fan2(aes(colour = node.group), width = 0.3, alpha = 0.35)+
+  scale_edge_colour_manual(values =  c("#ff7f0e", "#4daf4a", "#377eb8" ,"#984ea3", "#e41a1c"),
+                           guide = "none")+
+  geom_node_point(aes(size = degree), fill = "white", colour = "white", shape = 21, stroke = 0.6)+
+  geom_node_point(aes(fill = group, size = degree), colour = "gray35", shape = 21, stroke = 0.3)+
+  scale_size(range = c(1.5, 4), guide = "none")+
+  geom_node_text(aes(label = name), repel = TRUE, size =2.8)+
+  scale_fill_manual(values =  c("#ff7f0e", "#4daf4a", "#377eb8" ,"#984ea3", "#e41a1c"),
+                    name = "Keyword group",
+                    guide = guide_legend(override.aes = list(size = 2.8)))+
+  labs(tag = "b")+
+  theme_void()+
+  theme(plot.tag=element_text(size = 12, face = "bold"),
+        legend.title = element_text(size = 8, face = "bold"),
+        legend.text=element_text(size = 8),
+        legend.direction = "horizontal",
+        legend.position = "inside",
+        legend.position.inside = c(0.5, 0.01))
+```
+
+```{r}
+# plot the results of keyword analysis (Fig 2)
+p3 <- free(p3_a) + free(p3_b) + 
+  plot_layout(ncol = 1, nrow = 2, heights = c(1/3, 2/3))
+
+ggsave(file="figure/Fig2.pdf",
+       plot = p3,
+       width = 174, height = 234, units = "mm")
+```
+
+```{r}
+# end of keyword analysis
+save.image(file = "rdata/06_keyword.RData")
+```
+
+
