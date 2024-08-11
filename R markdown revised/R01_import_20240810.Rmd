@@ -1,0 +1,106 @@
+---
+title: "MAFLD"
+output: html_document
+date: "2024-06-17"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(bibliometrix)
+library(tidyverse)
+```
+
+
+```{r}
+file_name_p <- file_name_p <- list.files("data_nafld/", pattern= "pubmed")
+file_name_p
+```
+
+```{r}
+file_path_p <- paste0("data_nafld/", file_name_p)
+file_path_p
+```
+
+```{r}
+rds_path_p <- paste0("rds_nafld/", file_name_p) %>% str_remove("\\.txt$")
+rds_path_p
+```
+
+```{r}
+import_pubmed <- function(path){
+  df <- convert2df(path, dbsource = "pubmed", format = "pubmed") %>% as_tibble()
+}
+```
+
+```{r}
+pubmed_map <- map(file_path_p, import_pubmed)
+```
+
+```{r}
+for (i in 1:length(pubmed_map)){
+  saveRDS(pubmed_map[[i]], rds_path_p[i])
+}
+```
+
+
+```{r}
+file_name_w <- list.files("data_nafld/", pattern= "wos")
+file_name_w
+```
+
+```{r}
+file_path_w <- paste0("data_nafld/", file_name_w)
+file_path_w
+```
+
+```{r}
+rds_path_w <- paste0("rds_nafld/", file_name_w) %>% str_remove("\\.txt$")
+rds_path_w
+```
+
+```{r}
+import_wos <- function(path){
+  df <- convert2df(path, dbsource = "wos", format = "plaintext") %>% as_tibble()
+}
+```
+
+```{r}
+wos_map <- map(file_path_w, import_wos)
+```
+
+```{r}
+# saveRDS wos
+for (i in 1:length(wos_map)){
+  saveRDS(wos_map[[i]], rds_path_w[i])
+}
+```
+
+
+```{r}
+# import scopus
+file_name_s <- list.files("data_nafld/", pattern= "scopus")
+file_name_s
+```
+
+```{r}
+file_path_s <- paste0("data_nafld/", file_name_s)
+file_path_s
+```
+
+```{r}
+rds_path_s <- paste0("rds_nafld/", file_name_s) %>% str_remove("\\.csv$")
+rds_path_s
+```
+
+```{r}
+# import Scopus
+convert2df(file_path_s, dbsource = "scopus", format = "csv") %>% as_tibble() %>%
+  saveRDS(rds_path_s %>% str_c("_all"))
+```
+
+```{r}
+# end of saving RDS
+```

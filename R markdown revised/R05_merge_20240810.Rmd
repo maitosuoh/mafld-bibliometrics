@@ -1,0 +1,606 @@
+---
+title: "MAFLD"
+output: html_document
+date: "2024-06-17"
+---
+
+```{r}
+library(bibliometrix)
+library(tidyverse)
+library(openxlsx)
+```
+
+
+```{r}
+rds_name_all <- list.files("rds_nafld/", pattern= "_ui")
+rds_name_all
+```
+
+```{r}
+rds_path_all <- paste0("rds_nafld/", rds_name_all)
+rds_path_all
+```
+
+```{r}
+# use map to read all RDS
+rds_map <- map(rds_path_all, readRDS)
+```
+
+```{r}
+length(rds_map)
+```
+
+```{r}
+# create data frame for each data base
+for (i in 1:length(rds_map)){
+  assign(rds_name_all[i], rds_map[[i]])
+ 
+}
+```
+
+```{r}
+nrow(pubmed_nafld_ui)
+nrow(wos_nafld_ui)
+nrow(scopus_nafld_ui)
+```
+
+```{r}
+pubmed_nafld_ui %>% group_by(UI) %>% filter(n()>1) %>% nrow()
+
+wos_nafld_ui %>% group_by(UI) %>% filter(n()>1) %>% nrow()
+
+scopus_nafld_ui %>% group_by(UI) %>% filter(n()>1) %>% nrow()
+```
+
+```{r}
+scopus_nafld_ui %>% group_by(UI) %>% filter(n()>1) %>% View()
+```
+
+
+```{r}
+colnames(pubmed_nafld_ui)
+```
+
+
+```{r}
+colnames(wos_nafld_ui)
+```
+
+```{r}
+colnames(scopus_nafld_ui)
+```
+
+```{r}
+pubmed_merge <- pubmed_nafld_ui %>%
+  select(AU, AF, DE, DT, AB, C1, PY, SO, PM, J9, TI, DI, DB, SR_FULL, UI)
+
+wos_merge <- wos_nafld_ui %>%
+  select(AU, AF, DE, DT, AB, C1, PY, SO, PM, J9, TI, DI, DB, SR_FULL, UI_na, UI)
+
+scopus_merge <- scopus_nafld_ui %>%
+  select(AU, AF, DE, DT, AB, C1, PY, SO, PM, J9, TI, DI, DB, SR_FULL, UI_na, UI)
+```
+
+```{r}
+df_nafld <- pubmed_merge %>%
+  full_join(wos_merge, by = join_by(UI), suffix = c("_p", "")) %>%
+  full_join(scopus_merge, by = join_by(UI), suffix = c("_w", "_s"))
+```
+
+```{r}
+nrow(df_nafld)
+```
+
+```{r}
+colnames(df_nafld)
+```
+
+```{r}
+df_nafld <- df_nafld %>%
+  mutate(TI = case_when(!is.na(TI_p) ~ TI_p,
+                        is.na(TI_p) & !is.na(TI_w) ~ TI_w,
+                        is.na(TI_p) & is.na(TI_w) & !is.na(TI_s) ~ TI_s,
+                        .default = NA)) %>%
+  mutate(AB = case_when(!is.na(AB_p) ~ AB_p,
+                        is.na(AB_p) & !is.na(AB_w) ~ AB_w,
+                        is.na(AB_p) & is.na(AB_w) & !is.na(AB_s) ~ AB_s,
+                        .default = NA)) %>%
+  mutate(AU = case_when(!is.na(AU_p) ~ AU_p,
+                        is.na(AU_p) & !is.na(AU_w) ~ AU_w,
+                        is.na(AU_p) & is.na(AU_w) & !is.na(AU_s) ~ AU_s,
+                        .default = NA)) %>%
+  mutate(AF = case_when(!is.na(AF_p) ~ AF_p,
+                        is.na(AF_p) & !is.na(AF_w) ~ AF_w,
+                        is.na(AF_p) & is.na(AF_w) & !is.na(AF_s) ~ AF_s,
+                        .default = NA)) %>%
+  mutate(PY = case_when(!is.na(PY_p) ~PY_p,
+                        is.na(PY_p) & !is.na(PY_w) ~ PY_w,
+                        is.na(PY_p) & is.na(PY_w) & !is.na(PY_s) ~ PY_s,
+                        .default = NA)) %>%
+  mutate(SR_FULL = case_when(!is.na(SR_FULL_p) ~SR_FULL_p,
+                        is.na(SR_FULL_p) & !is.na(SR_FULL_w) ~ SR_FULL_w,
+                        is.na(SR_FULL_p) & is.na(SR_FULL_w) & !is.na(SR_FULL_s) ~ SR_FULL_s,
+                        .default = NA))
+```
+
+```{r}
+df_nafld <- df_nafld %>%
+  mutate(SO = case_when(!is.na(SO_p) ~ SO_p,
+                        is.na(SO_p) & !is.na(SO_w) ~ SO_w,
+                        is.na(SO_p) & is.na(SO_w) & !is.na(SO_s) ~ SO_s,
+                        .default = NA)) %>%
+  mutate(J9 = case_when(!is.na(J9_p) ~ J9_p,
+                        is.na(J9_p) & !is.na(J9_w) ~ J9_w,
+                        is.na(J9_p) & is.na(J9_w) & !is.na(J9_s) ~ J9_s,
+                        .default = NA))
+```
+
+
+```{r}
+df_nafld <- df_nafld %>%
+  mutate(DI = case_when(!is.na(DI_p) ~ DI_p,
+                        is.na(DI_p) & !is.na(DI_w) ~ DI_w,
+                        is.na(DI_p) & is.na(DI_w) & !is.na(DI_s) ~ DI_s,
+                        .default = NA)) %>%
+  mutate(PM = case_when(!is.na(PM_p) ~ PM_p,
+                        is.na(PM_p) & !is.na(PM_w) ~ PM_w,
+                        is.na(PM_p) & is.na(PM_w) & !is.na(PM_s) ~ PM_s,
+                        .default = NA))
+```
+
+```{r}
+df_nafld <- df_nafld %>%
+  mutate(DE = case_when(!is.na(DE_p) ~ DE_p,
+                        is.na(DE_p) & !is.na(DE_w) ~ DE_w,
+                        is.na(DE_p) & is.na(DE_w) & !is.na(DE_s) ~ DE_s,
+                        .default = NA)) 
+```
+
+```{r}
+#df_nafld <- df_nafld %>% filter(PY >= 2016 & PY <= 2019)
+```
+
+```{r}
+nrow(df_nafld)
+# 16433
+
+df_nafld %>% filter(is.na(UI)) %>% nrow()
+#no NA
+
+df_nafld %>% group_by(UI) %>% filter(n()>1) %>% nrow()
+# all UI unique
+```
+
+```{r}
+df_nafld <- df_nafld %>%
+  mutate(AB = case_when(AB %in% c("[NO ABSTRACT AVAILABLE]", "N/A.", "")  ~ NA,
+                        .default = as.character(AB)))
+```
+
+```{r}
+# abstract duplicates
+df_nafld %>% filter(!is.na(AB)) %>% group_by(AB) %>% filter(n()>1) %>%
+  select(DB_p, DB_w, DB_s, DI, PM, UI, TI, AB, DE) %>%
+  View()
+
+#10.18433/jpps31242
+# no author keyword found in the original paper, although wos has -> simply remove
+```
+
+```{r}
+# Liver Transplantation for the Referring Physician no NAFLD term, wrong index in wos
+# just one record
+# does not exist, processed earlier
+df_nafld %>% filter(UI == "10.1016/j.cld.2014.09.008") %>% select(TI, PM, DI, UI) %>% View()
+```
+
+```{r}
+# extract abstract duplicates UI
+ui_ab_dup <- df_nafld %>% filter(!is.na(AB)) %>% group_by(AB) %>% filter(n()>1) %>%
+  filter(str_detect(UI, "^[:alpha:]")) %>% pull(UI)
+
+ui_ab_dup
+```
+
+```{r}
+# remove duplicated abstract
+df_nafld <- df_nafld %>% filter(! UI %in% ui_ab_dup)
+nrow(df_nafld)
+#16421
+```
+
+```{r}
+# title and author duplicates first check
+df_nafld %>% group_by(TI, AU) %>% filter(n()>1) %>% nrow()
+df_nafld %>% group_by(TI, AU) %>% filter(n() == 2) %>% nrow()
+df_nafld %>% group_by(TI, AU) %>% filter(n() == 3) %>% nrow()
+```
+
+```{r}
+# title and author duplicates first check
+df_nafld %>% group_by(TI, SR_FULL) %>% filter(n()>1) %>% nrow()
+df_nafld %>% group_by(TI, SR_FULL) %>% filter(n() == 2) %>% nrow()
+df_nafld %>% group_by(TI, SR_FULL) %>% filter(n() == 3) %>% nrow()
+```
+
+```{r}
+# title and author duplicates first check
+df_nafld %>% group_by(TI, AU, SR_FULL) %>% filter(n()>1) %>% nrow()
+df_nafld %>% group_by(TI, AU, SR_FULL) %>% filter(n() == 2) %>% nrow()
+df_nafld %>% group_by(TI, AU, SR_FULL) %>% filter(n() == 3) %>% nrow()
+```
+
+```{r}
+# check triplicates first
+df_nafld %>% group_by(TI, AU, SR_FULL) %>% filter(n() == 3) %>% select(TI, PM, DI, UI, DE) %>% View()
+```
+```{r}
+df_nafld %>% filter(UI == "10.2174/1389200218666161116120301") %>% nrow()
+df_nafld %>% filter(DI == "10.2174/1389200218666161116120301") %>% nrow()
+```
+```{r}
+df_nafld %>% group_by(TI, AU, SR_FULL) %>% filter(n() == 3) %>% pull(UI)
+```
+
+
+```{r}
+# deal with triplicates
+# UI 27848888
+# fill DI with "10.2174/1389200218666161116120301"
+# fill DE with "ALCOHOLIC LIVER DISEASE; DILI; HCC; IMMUNOTHERAPY; LIVER DISEASES; NAFLD"
+# replace UI with "10.2174/1389200218666161116120301"
+
+nrow(df_nafld)
+
+df_nafld <- df_nafld %>%
+  mutate(DI = case_when(UI == "27848888" ~ "10.2174/1389200218666161116120301",
+                        .default = as.character(DI))) %>%
+  mutate(DE = case_when(UI == "27848888" ~ "ALCOHOLIC LIVER DISEASE; DILI; HCC; IMMUNOTHERAPY; LIVER DISEASES; NAFLD",
+                        .default = as.character(DE)))
+
+nrow(df_nafld)
+```
+
+```{r}
+# remove duplicated record
+nrow(df_nafld)
+
+df_nafld <- df_nafld %>%
+  filter(! UI %in% c( "10.2174/13892002186661611161203", "10.2174/1389200218666161116120301")) %>%
+  mutate(UI = case_when(UI == "27848888" ~ "10.2174/1389200218666161116120301",
+                        .default = as.character(UI)))
+
+nrow(df_nafld)
+ #16419
+```
+```{r}
+# TI, AU, SR duplicates
+df_nafld %>% group_by(TI, AU, SR_FULL) %>% filter(n()>1) %>% ungroup() %>% select(DB_p, DB_w, DB_s, PM, DI, UI, TI, AB, DE) %>% View()
+```
+
+```{r}
+# remove UI based on Title
+
+ui_ti_au_sr_dup <- df_nafld %>% group_by(TI, AU, SR_FULL) %>% filter(n()>1) %>% 
+  filter(str_detect(UI, "^[:alpha:]")) %>% pull(UI)
+
+length(ui_ti_au_sr_dup)
+ui_ti_au_sr_dup
+```
+
+
+```{r}
+nrow(df_nafld)
+#16425
+
+df_nafld <- df_nafld %>% filter(!UI %in% ui_ti_au_sr_dup)
+
+nrow(df_nafld)
+#16383
+```
+
+```{r}
+# title and author duplicates first check
+df_nafld %>% group_by(TI, AU) %>% filter(n()>1) %>% nrow()
+df_nafld %>% group_by(TI, AU) %>% filter(n() > 1 ) %>% select(DB_p, DB_w, DB_s, PM, DI, UI, TI, AB, DE) # %>% View()
+
+df_nafld %>% group_by(TI, AU) %>% filter(n()>1) %>% filter(str_detect(UI, "^[:alpha:]")) %>% nrow()
+```
+
+```{r}
+# title and author duplicates first check
+df_nafld %>% group_by(TI, SR_FULL) %>% filter(n()>1) %>% nrow()
+df_nafld %>% group_by(TI, SR_FULL) %>% filter(n()>1) %>% filter(str_detect(UI, "^[:alpha:]")) %>% nrow()
+
+df_nafld %>% group_by(TI, SR_FULL) %>% filter(n() >1) %>% select(DB_p, DB_w, DB_s, PM, DI, UI, TI, AB, DE) %>% View()
+```
+
+```{r}
+ui_ti_sr_dup <- df_nafld %>% group_by(TI, SR_FULL) %>% filter(n()>1) %>% filter(str_detect(UI, "^[:alpha:]")) %>% pull(UI)
+
+length(ui_ti_sr_dup )
+ui_ti_sr_dup 
+```
+
+```{r}
+nrow(df_nafld)
+#16383
+
+df_nafld <- df_nafld %>% filter(!UI %in% ui_ti_sr_dup )
+
+nrow(df_nafld)
+#16373
+```
+
+```{r}
+# title and author duplicates first check
+df_nafld %>% group_by(TI, AU) %>% filter(n()>1) %>% nrow()
+df_nafld %>% group_by(TI, AU) %>% filter(n() >1 ) %>% select(DB_p, DB_w, DB_s, PM, DI, UI, TI, AB, DE) %>% View()
+#114
+```
+
+```{r}
+ui_ti_au_dup <- df_nafld %>% group_by(TI, AU) %>% filter(n()>1) %>% filter(str_detect(UI, "^[:alpha:]")) %>% pull(UI)
+
+length(ui_ti_au_dup )
+ui_ti_au_dup 
+```
+
+```{r}
+nrow(df_nafld)
+# 16340
+
+df_nafld <- df_nafld %>% filter(!UI %in% ui_ti_au_dup)
+
+nrow(df_nafld)
+# 16340
+```
+
+```{r}
+#df_nafld %>% filter(!is.na(AB)) %>% group_by(AB) %>% filter(n()>1) %>% select(DB_p, DB_w, DB_s, PM, DI, UI, TI, AB, DE) %>% View()
+```
+
+```{r}
+df_nafld %>% group_by(TI) %>% filter(n()>1) %>% select(DB_p, DB_w, DB_s, PM, DI, UI, TI, AB, DE) %>% View()
+```
+
+```{r}
+# Title duplicates based on TI UI other than "NONALCOHOLIC FATTY LIVER DISEASE"
+
+ui_ti_dup <- df_nafld %>% group_by(TI) %>% filter(n()>1) %>% filter(str_detect(UI, "^[:alpha:]")) %>%
+  filter(UI != "NONALCOHOLIC FATTY LIVER DISEASE") %>% pull(UI)
+
+length(ui_ti_dup)
+ui_ti_dup
+```
+
+```{r}
+nrow(df_nafld)
+#16345
+
+df_nafld <- df_nafld %>% filter(!UI %in% ui_ti_dup)
+
+nrow(df_nafld)
+#16327
+```
+
+```{r}
+# pubmed duplicates
+# original paper and reply
+
+df_nafld %>% filter(DB_p == "p") %>% group_by(TI) %>% filter(n()>1) %>% 
+  select(DB_p, DB_w, DB_s, PM, DI, UI, TI, AB, DE) %>% View()
+```
+
+```{r}
+# scopus duplicates
+# original paper and reply
+
+df_nafld %>% filter(DB_w == "w") %>% group_by(TI) %>% filter(n()>1) %>% 
+  select(DB_p, DB_w, DB_s, PM, DI, UI, TI, AB, DE) %>% View()
+#no result
+```
+
+```{r}
+# scopus duplicates
+# original paper and reply
+
+df_nafld %>% filter(DB_s == "s") %>% group_by(TI) %>% filter(n()>1) %>% 
+  select(DB_p, DB_w, DB_s, PM, DI, UI, TI, AB, DE) %>% View()
+#scopus
+```
+
+```{r}
+# scopus duplicates
+# original paper and reply
+
+df_nafld %>% filter(DB_s == "s") %>% group_by(TI) %>% filter(n()>1) %>%
+#  filter(is.na(PM)) %>%
+  select(DB_p, DB_w, DB_s, PM, DI, UI, TI, AB, DE) %>% 
+  ungroup() %>%
+  group_by(PM) %>%
+  arrange(desc(TI)) %>% View()
+#scopus
+```
+
+```{r}
+# scopus duplicates PM NA
+
+df_nafld %>% group_by(TI) %>% filter(n()>1) %>%
+  select(DB_p, DB_w, DB_s, PM, DI, UI, TI, PY, AB, DE) %>%  View()
+
+# try clean AB by removing © " COPYRIGHT "
+```
+
+```{r}
+df_nafld_ab <- df_nafld %>%
+  mutate(AB = str_remove(AB, "©.*$")) %>%
+  mutate(AB = str_remove(AB, " COPYRIGHT $")) %>%
+  mutate(AB = str_trim(AB, "right"))
+```
+
+```{r}
+# scopus duplicates PM NA
+
+df_nafld_ab %>% filter(!is.na(AB)) %>% group_by(AB) %>% filter(n()>1) %>%
+  select(DB_p, DB_w, DB_s, PM, DI, UI, TI, PY, AB, DE) %>%  View()
+
+# try clean AB by removing © " COPYRIGHT "
+```
+
+```{r}
+# remove 10.1159/000505952
+# wrong abstract in wos, not related to nafld
+nrow(df_nafld_ab)
+df_nafld_ab <- df_nafld_ab %>% filter(UI != "10.1159/000505952")
+nrow(df_nafld_ab)
+```
+```{r}
+df_nafld_ab %>% filter(!is.na(AB)) %>% group_by(AB) %>% filter(n()>1) %>%
+  select(DB_p, DB_w, DB_s, PM, DI, UI, TI, PY, AB, DE) %>%  View()
+```
+
+```{r}
+ui_ab_dup <- df_nafld_ab %>% filter(!is.na(AB)) %>% group_by(AB) %>% filter(n()>1) %>% arrange(UI) %>% ungroup() %>%
+  distinct(AB, .keep_all = TRUE) %>% pull(UI)
+  
+```
+
+```{r}
+nrow(df_nafld_ab)
+
+df_nafld_ab <- df_nafld_ab %>% filter(!UI %in% ui_ab_dup)
+
+nrow(df_nafld_ab)
+```
+```{r}
+# scopus duplicates
+df_nafld_ab  %>% filter(DB_s == "s") %>% group_by(TI, AU, PY) %>% filter(n()>1) %>%
+  select(DB_p, DB_w, DB_s, PM, DI, UI, TI, PY, AB, DE, SR_FULL) %>% View()
+```
+
+```{r}
+ui_scopus_ti_au_py <- df_nafld_ab  %>% filter(DB_s == "s") %>% group_by(TI, AU, PY) %>% filter(n()>1) %>%
+  filter(is.na(PM)) %>% pull(UI)
+
+ui_scopus_ti_au_py 
+```
+
+```{r}
+nrow(df_nafld_ab)
+
+df_nafld_ab <- df_nafld_ab %>% filter(!UI %in% ui_scopus_ti_au_py )
+
+nrow(df_nafld_ab)
+```
+
+```{r}
+# scopus duplicates
+df_nafld_ab  %>% filter(DB_s == "s") %>% group_by(TI, AU) %>% filter(n()>1) %>%
+  select(DB_p, DB_w, DB_s, PM, DI, UI, TI, PY, AB, DE, SR_FULL) %>% View()
+# probably no duplicates any more, same title but indexed differently or published on different year
+```
+
+```{r}
+df_nafld_ab %>% group_by(TI) %>% filter(n()>1) %>% 
+  select(DB_p, DB_w, DB_s, PM, AU, J9, DI, UI, TI, J9, PY, AB, DE, SR_FULL) %>%
+  arrange(TI) %>%
+  write.xlsx("ti_dup_merge_20240724.xlsx")
+```
+
+
+```{r}
+# manually remove duplicates
+nrow(df_nafld_ab)
+
+df_nafld_ab <- df_nafld_ab %>%
+  filter(!UI %in% c("10.5812/iranjradiol.14260",
+                  "10.17219/acem/104547",
+                  "10.3345/kjp.2016.59.9.364",
+                  "10.12032/tmr20200603192",
+                  "10.29333/ejgm/1631",
+                  "10.4103/ijem.ijem-31-18",
+                  "10.4254/wjh.vl2.il0.792",
+                  "10.4103/sjmms.sjmms-272-19",
+                  "10.3138/canlivj.2019-005",
+                  "29173182",
+                  "10.19193/0393-6384_2017_4_106",
+                  "10.22037/ghfbb.v0i0.1274",
+                  "10.15171/mejdd.2020.168"))
+
+nrow(df_nafld_ab)
+```
+
+```{r}
+df_nafld_ab %>% filter(str_detect(UI, "^[:alpha:]")) %>% nrow()
+
+df_nafld_ab %>% filter(str_detect(UI, "^[:alpha:]")) %>%  select(DB_p, DB_w, DB_s, PM, DI, UI, TI, AB, DE) %>% View()
+```
+
+```{r}
+df_nafld_ab %>% filter(str_detect(UI, "^[:alpha:]")) %>%
+  mutate(UI = str_remove_all(TI, "\\s")) %>%
+  group_by(UI) %>%
+  filter(n()>1) %>% select(DB_w, DB_s,PM, DI, TI, AU, AB, PY, DE) %>% View()
+```
+```{r}
+ui_alpha_dup <- df_nafld_ab %>% filter(str_detect(UI, "^[:alpha:]")) %>%
+  mutate(UI_short = str_remove_all(TI, "\\s")) %>%
+  group_by(UI_short) %>%
+  filter(n()>1) %>%
+  filter(DB_s == "s") %>%
+  pull(UI)
+
+ui_alpha_dup
+```
+
+
+
+```{r}
+# simply remove scopus
+nrow(df_nafld_ab)
+
+df_nafld_clean <- df_nafld_ab %>%
+  filter(!UI %in% ui_alpha_dup)
+
+nrow(df_nafld_clean)
+#16284
+```
+
+```{r}
+# excluded duplicates
+print(16433 - 16285)
+```
+
+
+```{r}
+nrow(df_nafld_clean)
+
+df_nafld_clean <- df_nafld_clean %>%
+  filter(PY >= 2016 & PY <= 2019)
+
+nrow(df_nafld_clean)
+```
+
+```{r}
+# excluded based on year
+print(16285 - 10421)
+```
+
+```{r}
+# total removed
+print(16433 - 10421)
+```
+
+```{r}
+print(148 + 5864)
+```
+
+
+```{r}
+#
+saveRDS(df_nafld_clean, "rds_nafld/df_nafld_clean")
+```
+
+# end of run
+

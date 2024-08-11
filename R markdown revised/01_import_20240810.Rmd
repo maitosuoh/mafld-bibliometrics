@@ -1,0 +1,75 @@
+---
+title: "MAFLD"
+output: html_document
+date: "2024-06-17"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(bibliometrix)
+library(tidyverse)
+```
+
+```{r}
+# import PubMed
+pubmed <- convert2df("data_mafld/20231010_pubmed.txt", dbsource = "pubmed", format = "pubmed")
+```
+
+```{r}
+# import Web of Science
+wos1 <- convert2df("data_mafld/20231010_wos1.txt", dbsource = "wos", format = "plaintext")
+wos2 <- convert2df("data_mafld/20231010_wos2.txt", dbsource = "wos", format = "plaintext")
+```
+
+```{r}
+# check columns in wos1 but not in wos2
+setdiff(colnames(wos1), colnames(wos2))
+```
+
+```{r}
+# check columns in wos2 but not in wos1
+setdiff(colnames(wos2), colnames(wos1))
+```
+
+```{r}
+# remove unmatched column from wos1
+wos1 <- wos1 %>% select(!PN)
+```
+
+```{r}
+# remove unmatched column from wos2
+wos2 <- wos2 %>% select(!c(BE, BN, HO, SE))
+```
+
+```{r}
+# check all colnames are the same
+all.equal(colnames(wos1), colnames(wos2))
+```
+
+```{r}
+# combine wos1 and wos2
+wos <- bind_rows(wos1, wos2)
+```
+
+```{r}
+# import Scopus
+scopus <- convert2df("data_mafld/20231010_scopus.csv", dbsource = "scopus", format = "csv")
+```
+
+```{r}
+# save RDS for each dataset
+pubmed %>% as_tibble() %>% saveRDS("rds_mafld/pubmed")
+
+wos %>% as_tibble() %>% saveRDS("rds_mafld/wos")
+
+scopus %>% as_tibble() %>% saveRDS("rds_mafld/scopus")
+```
+
+
+```{r}
+# save workspace
+#save.image("rdata/01_import.RData")
+```

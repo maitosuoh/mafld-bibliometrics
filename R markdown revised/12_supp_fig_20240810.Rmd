@@ -1,0 +1,346 @@
+---
+title: "MAFLD"
+output: html_document
+date: "2024-06-17"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(bibliometrix)
+library(tidyverse)
+library(ggtext)
+library(glue)
+library(ggrepel)
+library(countrycode)
+library(sf)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(rmapshaper)
+library(CoordinateCleaner)
+library(igraph)
+library(ggraph)
+library(tidygraph)
+library(patchwork)
+library(cowplot)
+```
+
+```{r}
+# load 09_flow_chart
+load(file="rdata/11_flow_chart_nafld.RData")
+```
+
+```{r}
+# plot ciation counts in scopus (Fig s3)
+s3_a <- df_bx %>%
+  filter(!is.na(TC_s)) %>%
+  slice_max(TC_s, n = 15) %>%
+  mutate(PN2 = case_when(PM == "32278004" ~ paste(PN2, "[a]"),
+                         .default = as.character(PN2))) %>%
+  mutate(PN2 = case_when(PM == "32044314" ~ paste(PN2, "[b]"),
+                         .default = as.character(PN2))) %>%
+  mutate(PN2 = case_when(PM == "33006093" ~ paste(PN2, "[c]"),
+                         .default = as.character(PN2))) %>%
+  mutate(TI = str_remove(TI, "LETTER TO THE EDITOR: ")) %>% 
+  mutate(TI = str_to_sentence(TI)) %>%
+  mutate(TI = str_remove(TI, "LETTER TO THE EDITOR: ")) %>%
+  mutate(TI = str_to_sentence(TI)) %>%
+  mutate(TI = str_replace(TI, "Mafld", "MAFLD")) %>%
+  mutate(TI = str_replace(TI, "mafld", "MAFLD")) %>%
+  mutate(TI = str_replace(TI, "nafld", "NAFLD")) %>%
+  mutate(TI = str_replace(TI, "covid-19", "COVID-19")) %>%
+  mutate(TI = str_replace(TI, "ckd", "CKD")) %>%
+  mutate(TI = str_replace(TI, "asian pacific association for the study of the liver", "Asian Pacific Association for the Study of the Liver")) %>%
+  mutate(TI = str_replace(TI, "kupffer", "Kupffer")) %>%
+  ggplot(aes(TC_s, fct_reorder(PN2, TC_s))) +
+  geom_col(fill = "#ff7f00", alpha = 0.5, width = 0.7)+
+  geom_text(aes(x = 2000/50, label = TI), hjust = 0, vjust= 0.5, size = 2.8)+
+  scale_x_continuous(breaks = seq(0, 2000, 500), 
+                   limits = c(0,2000), 
+                   expand = c(0,0))+
+  labs(x = "Citation count", y = "Publication", tag = "a") +
+  theme_classic()+
+  theme(plot.tag = element_text(size = 12, face="bold"),
+        axis.title = element_text(size = 8, face = "bold"),
+        axis.text.x = element_text(size = 8, colour = "black"),
+        axis.text.y = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        plot.margin = unit(c(23,23,5,23), "mm"))
+```
+
+```{r}
+# plot citation counts in wos (Fig s3)
+s3_b <- df_bx %>%
+  filter(!is.na(TC_w)) %>%
+  slice_max(TC_w, n = 15) %>%
+  mutate(PN2 = case_when(PM == "32278004" ~ paste(PN2, "[a]"),
+                         .default = as.character(PN2))) %>%
+  mutate(PN2 = case_when(PM == "32044314" ~ paste(PN2, "[b]"),
+                         .default = as.character(PN2))) %>%
+  mutate(PN2 = case_when(PM == "33006093" ~ paste(PN2, "[c]"),
+                         .default = as.character(PN2))) %>%
+  mutate(TI = str_remove(TI, "LETTER TO THE EDITOR: ")) %>%
+  mutate(TI = str_to_sentence(TI)) %>%
+  mutate(TI = str_replace(TI, "Mafld", "MAFLD")) %>%
+  mutate(TI = str_replace(TI, "mafld", "MAFLD")) %>%
+  mutate(TI = str_replace(TI, "nafld", "NAFLD")) %>%
+  mutate(TI = str_replace(TI, "covid-19", "COVID-19")) %>%
+  mutate(TI = str_replace(TI, "ckd", "CKD")) %>%
+  mutate(TI = str_replace(TI, "asian pacific association for the study of the liver", "Asian Pacific Association for the Study of the Liver")) %>%
+  mutate(TI = str_replace(TI, "kupffer", "Kupffer")) %>%
+  ggplot(aes(TC_w, fct_reorder(PN2, TC_w))) +
+  geom_col(fill = "#4daf4a", alpha = 0.5, width = 0.7)+
+  geom_text(aes(x = 40, label = TI), hjust = 0, vjust = 0.5, size = 2.8)+
+  scale_x_continuous(breaks = seq(0, 2000, 500), 
+                   limits = c(0,2000), 
+                   expand = c(0,0))+
+  labs(x = "Citation count", y = "Publication", tag = "b")+
+  theme_classic()+
+  theme(plot.tag = element_text(size = 12, face="bold"),
+        axis.title = element_text(size = 8, face = "bold"),
+        axis.text.x = element_text(size = 8, colour = "black"),
+        axis.text.y = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        plot.margin = unit(c(0,23, 91,23), "mm"))
+```
+
+```{r}
+# Fig s3: combine plots and save as pdf
+s3 <- s3_a / s3_b
+s3 <- s3 +
+    labs(caption = "<span style = 'font-family:sans'><b>Fig. S3 a, b</b></span> Highly cited MAFLD papers in Scopus (<b>a</b>) and Web of Science (<b>b</b>)")+
+    theme(plot.caption = element_markdown(family = "serif", size = 10, hjust = 0),
+          plot.caption.position =  "plot")
+ggsave("figure/FigS3.pdf", s3, width = 210, height = 297, unit = "mm")
+```
+
+```{r}
+# join publication group to the keyword data frame
+df_de_cr <- df_de_long %>% left_join(cr_full_label %>% select(name, group), by = join_by(UI == name))
+```
+
+```{r}
+df_de_cr %>% count(group)
+```
+
+
+```{r}
+# plot common keywords in group A (Fig s4)
+s4_a <- df_de_cr %>% filter(group == "A") %>% count(DE) %>% slice_max(n, n = 15) %>%
+  mutate(DE = str_to_sentence(DE)) %>%
+  mutate(DE = case_when(DE == "Mafld" ~ "MAFLD",
+                        DE == "Non-alcoholic fatty liver disease" ~ "NAFLD",
+                        DE == "Non-alcoholic steatohepatitis" ~ "NASH", 
+                        DE == "Hepatocellular carcinoma" ~ "HCC",
+                        str_detect(DE, "mellitus") ~ str_remove(DE, " mellitus"),
+                        .default = as.character(DE))) %>%
+  mutate(de_width = str_width(DE)) %>%
+  arrange(n, desc(de_width)) %>%
+  mutate(order = row_number()) %>%
+  ggplot(aes(n, fct_reorder(DE, order)))+
+  geom_col(fill = "#377eb8", width = 0.7)+
+  scale_x_continuous(breaks = seq(0, 100, 50), 
+                   limits = c(0,100), 
+                   expand = c(0,0))+
+  labs(x = "Count", y = "Keyword", tag = "a") +
+  theme_classic()+
+  theme(plot.tag = element_text(size = 12, face="bold"),
+        axis.title = element_text(size = 8, face = "bold"),
+        axis.text.x = element_text(size = 8, colour = "black"),
+        axis.text.y = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        plot.margin = unit(c(23,5,0,23), "mm"))
+```
+
+```{r}
+# plot common keywords in group B (Fig s4)
+s4_b <- df_de_cr %>% filter(group == "B") %>% count(DE) %>% slice_max(n, n = 15) %>%
+  mutate(DE = str_to_sentence(DE)) %>%
+  mutate(DE = case_when(DE == "Mafld" ~ "MAFLD",
+                        DE == "Non-alcoholic fatty liver disease" ~ "NAFLD",
+                        DE == "Non-alcoholic steatohepatitis" ~ "NASH", 
+                        DE == "Hepatocellular carcinoma" ~ "HCC",
+                        str_detect(DE, "mellitus") ~ str_remove(DE, " mellitus"),
+                        DE == "Chronic hepatitis b" ~ "Chronic hepatitis B",
+                        .default = as.character(DE))) %>%
+  mutate(de_width = str_width(DE)) %>%
+  arrange(n, desc(de_width)) %>%
+  mutate(order = row_number()) %>%
+  ggplot(aes(n, fct_reorder(DE, order)))+
+  geom_col(fill = "#ff7f00", width = 0.7)+
+  scale_x_continuous(breaks = seq(0, 200, 50), 
+                   limits = c(0,200), 
+                   expand = c(0,0))+
+  labs(x = "Count", y = "Keyword", tag = "b") +
+  theme_classic()+
+  theme(plot.tag = element_text(size = 12, face="bold"),
+        axis.title = element_text(size = 8, face = "bold"),
+        axis.text.x = element_text(size = 8, colour = "black"),
+        axis.text.y = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        plot.margin = unit(c(23,23,0,0), "mm"))
+```
+
+```{r}
+# plot common keywords in group C (Fig s4)
+s4_c <- df_de_cr %>% filter(group == "C") %>% count(DE) %>% slice_max(n, n = 15) %>%
+  mutate(DE = str_to_sentence(DE)) %>%
+  mutate(DE = case_when(DE == "Mafld" ~ "MAFLD",
+                         DE == "Non-alcoholic fatty liver disease" ~ "NAFLD",
+                        DE == "Non-alcoholic steatohepatitis" ~ "NASH", 
+                        DE == "Hepatocellular carcinoma" ~ "HCC",
+                        str_detect(DE, "mellitus") ~ str_remove(DE, " mellitus"),
+                        DE == "Nhanes" ~ "NHANES",
+                        .default = as.character(DE))) %>%
+  mutate(de_width = str_width(DE)) %>%
+  arrange(n, desc(de_width)) %>%
+  mutate(order = row_number()) %>%
+  ggplot(aes(n, fct_reorder(DE, order)))+
+  geom_col(fill = "#4daf4a", width = 0.7)+
+  scale_x_continuous(breaks = seq(0, 100, 50), 
+                   limits = c(0, 100), 
+                   expand = c(0, 0))+
+  labs(x = "Count", y = "Keyword", tag = "c") +
+  theme_classic()+
+  theme(plot.tag = element_text(size = 12, face="bold"),
+        axis.title = element_text(size = 8, face = "bold"),
+        axis.text.x = element_text(size = 8, colour = "black"),
+        axis.text.y = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        plot.margin = unit(c(0,5,0,23), "mm"))
+```
+
+```{r}
+# plot common keywords in group D (Fig s4)
+s4_d <- df_de_cr %>% filter(group == "D") %>% count(DE) %>% slice_max(n, n = 15) %>%
+  mutate(DE = str_to_sentence(DE)) %>%
+  mutate(DE = case_when(DE == "Mafld" ~ "MAFLD",
+                        DE == "Non-alcoholic fatty liver disease" ~ "NAFLD",
+                        DE == "Non-alcoholic steatohepatitis" ~ "NASH", 
+                        DE == "Hepatocellular carcinoma" ~ "HCC",
+                        str_detect(DE, "mellitus") ~ str_remove(DE, " mellitus"),
+                        .default = as.character(DE))) %>%
+  mutate(de_width = str_width(DE)) %>%
+  arrange(n, desc(de_width), desc(DE)) %>%
+  mutate(order = row_number()) %>%
+  ggplot(aes(n, fct_reorder(DE, order)))+
+  geom_col(fill = "#e41a1c", width = 0.7)+
+  scale_x_continuous(breaks = seq(0, 150, 50), 
+                   limits = c(0, 150), 
+                   expand = c(0, 0))+
+  labs(x = "Count", y = "Keyword", tag = "d") +
+  theme_classic()+
+  theme(plot.tag = element_text(size = 12, face="bold"),
+        axis.title = element_text(size = 8, face = "bold"),
+        axis.text.x = element_text(size = 8, colour = "black"),
+        axis.text.y = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        plot.margin = unit(c(0,23,0,0), "mm"))
+```
+
+```{r}
+# plot common keywords in group E (Fig s4)
+s4_e <- df_de_cr %>% filter(group == "E") %>% count(DE) %>% slice_max(n, n = 15) %>%
+  mutate(DE = str_to_sentence(DE)) %>%
+  mutate(DE = case_when(DE == "Mafld" ~ "MAFLD",
+                        DE == "Non-alcoholic fatty liver disease" ~ "NAFLD",
+                        DE == "Non-alcoholic steatohepatitis" ~ "NASH", 
+                        DE == "Hepatocellular carcinoma" ~ "HCC",
+                        str_detect(DE, "mellitus") ~ str_remove(DE, " mellitus"),
+                        DE == "Covid-19" ~ "COVID-19",
+                        .default = as.character(DE))) %>%
+  mutate(DE = str_replace(DE, "Sars-cov-2", "SARS-CoV-2")) %>%
+  mutate(de_len = str_length(DE)) %>%
+  arrange(n, desc(de_len), desc(DE)) %>%
+  mutate(order = row_number()) %>%
+  ggplot(aes(n, fct_reorder(DE, order)))+
+  geom_col(fill = "#984ea3", width = 0.7)+
+  scale_x_continuous(breaks = seq(0, 40, 10), 
+                   limits = c(0, 40), 
+                   expand = c(0, 0))+
+  labs(x = "Count", y = "Keyword", tag = "e") +
+  theme_classic()+
+  theme(plot.tag = element_text(size = 12, face="bold"),
+        axis.title = element_text(size = 8, face = "bold"),
+        axis.text.x = element_text(size = 8, colour = "black"),
+        axis.text.y = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        plot.margin = unit(c(0,5,40,23), "mm"))
+```
+
+```{r}
+s4 <- s4_a + s4_b + s4_c + s4_d + s4_e +
+  plot_layout(design = "
+  AB
+  CD
+  E#")+
+  labs(caption = "<span style = 'font-family:sans'><b>Fig. S4 a-e</b></span> Frequent keywords in each publication group (A-E) of the co-citation network created from MAFLD<br>literature")+
+  theme(plot.caption = element_markdown(family = "serif", size = 10, hjust = 0,
+                                        lineheight = 1.25),
+        plot.caption.position =  "plot")
+ggsave("figure/FigS4.pdf", s4, width = 210, height = 297, unit = "mm")
+```
+
+```{r}
+# plot a stacked bar chart for country based publication output
+s5 <- df_c1_long %>%
+  group_by(UI) %>%
+  distinct(CN, .keep_all = TRUE) %>%
+  mutate(SM = if_else(n() >1, "Multiple", "Single")) %>%
+  mutate(WT = 1/n()) %>%
+  ungroup() %>%
+  group_by(CN, SM) %>%
+  summarise(count = sum(WT)) %>%
+  ungroup()%>%
+  mutate(CN = case_when(CN == "United States" ~ "USA",
+                        CN == "United Kingdom" ~ "UK",
+                          .default = as.character(CN))) %>%
+  mutate(CN = fct_relevel(CN, rev(cn_order_frc))) %>%
+  filter(CN %in% cn_order_frc[1:25]) %>%
+  ggplot(aes(count, CN, fill = SM)) +
+  geom_col(width = 0.7)+
+  geom_text(data = total_label_frc,
+            aes(total, CN, label = total, fill = NULL), 
+            hjust = 0, vjust = 0.5, nudge_x =550/150, size = 2.8)+
+  labs(x = "Publication count",
+       y = "Country",
+       fill = "Author country")+
+  scale_x_continuous(breaks = seq(0, 550, 50), 
+                   limits = c(0,550), 
+                   expand = c(0,0))+
+  scale_fill_manual(values = c("#ff7f00", "#377eb8"))+
+  theme_classic()+
+  theme(axis.title = element_text(size = 8, face = "bold", colour = "black"),
+        axis.text=element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        legend.position = "inside",
+        legend.position.inside = c(1, 0.5),
+        legend.justification = c(1, 0.5),
+        legend.box = "horizontal",
+        legend.key.size = unit(1, "line"),
+        legend.title = element_text(size = 8, face = "bold", vjust = 0.5),
+        legend.text = element_text(size = 8),
+        plot.margin = margin(23,23,150,23, "mm")) 
+```
+
+```{r}
+s5 <- s5+
+  labs(caption = "<span style = 'font-family:sans'><b>Fig. S5</b></span> Top countries producing MAFLD literature")+
+  theme(plot.caption = element_markdown(family = "serif", size = 10, hjust = 0),
+        plot.caption.position =  "plot")
+ggsave("figure/FigS5.pdf", s5, width = 210, height = 297, unit = "mm")
+```
+
+```{r}
+save.image("rdata/12_supp_fig.RData")
+```

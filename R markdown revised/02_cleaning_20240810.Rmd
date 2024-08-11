@@ -1,0 +1,1222 @@
+---
+title: "MAFLD"
+output: html_document
+date: "2024-06-17"
+---
+
+```{r}
+library(bibliometrix)
+library(tidyverse)
+```
+
+```{r}
+# readRDS
+pubmed <- readRDS("rds_mafld/pubmed")
+
+wos <- readRDS("rds_mafld/wos")
+
+scopus <- readRDS("rds_mafld/scopus")
+```
+
+```{r}
+#select columns in pubmed
+pubmed <- pubmed %>%
+  select(AU, AF, DE, OT, PHST, DT, AB, C1, CRDT, DCOM, DEP, PY, EDAT, SO, LA, LID, LR, MHDA, PMID, SO2, J9, TI, DI, AU_UN, AU1_UN, SR_FULL, SR)
+```
+
+```{r}
+#change column names for consistency with other datasets
+pubmed <- pubmed %>%
+  rename(MS = DE) %>%
+  rename(DE = OT) %>%
+  rename(PM = PMID) %>%
+  rename(DI_old = DI)
+```
+
+```{r}
+# add database information for pubmed
+pubmed <- pubmed %>% mutate(DB = "p")
+```
+
+```{r}
+# overwrite DI in a single format by extracting xxx.[DOI] from LID 
+pubmed <- pubmed %>%
+  mutate(DI = str_remove(LID, "^[:graph:]+\\s\\[PII\\]"))%>%
+  mutate(DI = str_remove(DI, "^\\s")) %>%
+  mutate(DI = str_remove(DI, "\\s\\[DOI\\].*")) %>%
+  mutate(DI = na_if(DI, "")) %>%
+  mutate(DI = str_to_lower(DI))
+```
+
+```{r}
+# extract DI from SO2
+pubmed <- pubmed %>%   
+  mutate(SO2_di = str_extract(SO2, "(?<=\\s\\DOI\\:\\s).*")) %>%
+  mutate(SO2_di = str_remove(SO2_di, "\\.\\sEPUB\\s.*")) %>%
+  mutate(SO2_di = str_remove(SO2_di, "\\.\\sECOLLECTION\\s.*")) %>%
+  mutate(SO2_di = str_remove(SO2_di, "\\.\\sPRINT\\s.*")) %>%
+  mutate(SO2_di = str_remove(SO2_di, "\\.$")) %>%
+  mutate(SO2_di = na_if(SO2_di, "")) %>%
+  mutate(SO2_di = str_to_lower(SO2_di))
+```
+
+```{r}
+# check DI and SO2_di are consistent
+pubmed %>% filter(str_equal(DI, SO2_di)) %>% nrow()
+pubmed %>% filter(!str_equal(DI, SO2_di)) %>% nrow()
+```
+
+```{r}
+# check NA and non-NA in DI and SO2_di are exactly the same
+pubmed %>% filter(is.na(DI)) %>% nrow()
+pubmed %>% filter(!is.na(DI)) %>% nrow()
+
+pubmed %>% filter(is.na(SO2_di)) %>% nrow()
+pubmed %>% filter(!is.na(SO2_di)) %>% nrow()
+
+all.equal(pubmed %>% filter(is.na(DI)) %>% pull(DI), pubmed %>% filter(is.na(SO2_di)) %>% pull(DI))
+all.equal(pubmed %>% filter(!is.na(DI)) %>% pull(DI), pubmed %>% filter(!is.na(SO2_di)) %>% pull(DI))
+```
+
+```{r}
+# select necessary columns in wos
+wos <- wos %>%
+  select(AU, AF, CR, AB, C1, C3, DE, DI, DT, ID, J9, JI, LA, PD, PM, PY, RP, SC, SO, TC, TI, UT, WC, Z9, AU_UN, AU1_UN, SR_FULL, SR)
+```
+
+```{r}
+# add database information for wos
+wos <- wos %>% mutate(DB = "w")
+```
+
+```{r}
+# clean DI in wos
+# change to lower case and remove "." at the end in one article
+wos <- wos %>%
+  mutate(DI = str_to_lower(DI)) %>%
+  mutate(DI = str_remove(DI, "\\.$"))
+```
+
+```{r}
+# select necessary columns in scopus
+scopus <- scopus %>%
+  select(AU, AF, TI, PY, SO, TC, DI, URL, Affiliations, C1, AB, DE, ID, CR, RP, PubMed.ID, LA, JI, DT, UT, J9, AU_UN, AU1_UN, SR_FULL,	SR) %>%
+  rename(PM = PubMed.ID)
+```
+
+```{r}
+# add database information for scopus
+scopus <- scopus %>% mutate(DB = "s")
+```
+
+```{r}
+# format scopus DI
+# change to lower case and change blank character to NA
+scopus <- scopus %>%
+  mutate(DI = str_to_lower(DI)) %>%
+  mutate(across(where(is.character), ~na_if(., "")))
+```
+
+```{r}
+# define function for substituting dash
+gsub_dash <- function(x){
+  x <- gsub("\\p{Pd}", "-", x, perl=TRUE)
+  x <- gsub("−", "-", x)
+  return(x)
+}
+```
+
+```{r}
+# apply gsub_dash to characters
+pubmed <- pubmed %>% mutate(across(c(TI, AB, DE), gsub_dash))
+wos <- wos %>% mutate(across(c(TI, AB, DE, CR), gsub_dash))
+scopus <- scopus %>% mutate(across(c(TI, AB, DE, CR), gsub_dash))
+```
+
+```{r}
+# correct mismatch between DOI and PMID between datasets (both not NA)
+pre_pubmed_di_pm <- pubmed %>% select(TI, DI, PM) %>% filter((!is.na(DI)) & (!is.na(PM)))
+pre_wos_di_pm <- wos %>% select(TI, DI, PM) %>% filter((!is.na(DI)) & (!is.na(PM)))
+pre_scopus_di_pm <- scopus %>% select(TI, DI, PM) %>% filter((!is.na(DI)) & (!is.na(PM)))
+```
+
+```{r}
+# same DI, different PM between pubmed and wos
+pre_pubmed_di_pm %>% 
+  inner_join(pre_wos_di_pm, by = join_by("DI"), suffix = c("_p", "_w")) %>%
+  filter(!str_equal(PM_p, PM_w))
+# 2 papers in wos have wrong DI
+# 36719471 36604612
+```
+
+```{r}
+# same DI but different PM between pubmed and scopus
+pre_pubmed_di_pm %>% 
+  inner_join(pre_scopus_di_pm, by = join_by("DI"), suffix = c("_p", "_s")) %>%
+  filter(!str_equal(PM_p, PM_s))
+# 0
+```
+
+```{r}
+# same DI but different PM between wos and scopus
+pre_wos_di_pm %>%
+  inner_join(pre_scopus_di_pm, by = join_by("DI"), suffix = c("_w", "_s")) %>%
+  filter(!str_equal(PM_w, PM_s))
+# 2 papers in wos have wrong doi (the same as pubmed-wos join)
+# 36719471 36604612
+```
+
+```{r}
+# same PM but different DI between pubmed and wos
+pre_pubmed_di_pm %>% 
+  inner_join(pre_wos_di_pm, by = join_by("PM"), suffix = c("_p", "_w")) %>%
+  filter(!str_equal(DI_p, DI_w))
+# 5 papers
+# "37302463" "36549643" "35537911" "35153138" "36842183"
+```
+
+```{r}
+# same PM but different DI between pubmed and scopus
+pre_pubmed_di_pm %>% 
+  inner_join(pre_scopus_di_pm, by = join_by("PM"), suffix = c("_p", "_s")) %>%
+  filter(!str_equal(DI_p, DI_s))
+# 2 papers 
+# 37302463 36549643
+```
+
+```{r}
+# same PM but different DI between wos and scopus
+pre_wos_di_pm %>% 
+  inner_join(pre_scopus_di_pm, by = join_by("PM"), suffix = c("_w", "_s")) %>%
+  filter(!str_equal(DI_w, DI_s))
+# 2 papers
+# 35153138 36842183 (same as above)
+```
+
+```{r}
+# change wos PM based on pubmed DI, extract tibble for row update
+pre_di_to_pm <- pre_pubmed_di_pm %>% 
+  inner_join(pre_wos_di_pm, by = join_by("DI"), suffix = c("_p", "_w")) %>%
+  filter(!str_equal(PM_p, PM_w)) %>%
+  select(DI, PM_p) %>%
+  rename(PM = PM_p)
+```
+
+```{r}
+# update wrong wos-PM based on DI
+wos <- wos %>% rows_update(tibble(pre_di_to_pm), by = "DI") 
+```
+
+```{r}
+# check update
+wos %>% filter(DI %in% pre_di_to_pm$DI)
+```
+
+```{r}
+# change wos DI based on pubmed PM, extract tibble for row update
+pre_pm_to_di_wos <- pre_pubmed_di_pm %>% 
+  inner_join(pre_wos_di_pm, by = join_by("PM"), suffix = c("_p", "_w")) %>%
+  filter(!str_equal(DI_p, DI_w)) %>%
+  select(PM, DI_p) %>%
+  rename(DI = DI_p)
+```
+
+```{r}
+# update wrong DI based on pubmed PM
+wos <- wos %>% rows_update(tibble(pre_pm_to_di_wos), by = "PM")  
+```
+
+```{r}
+# check update
+wos %>% filter(PM %in% pre_pm_to_di_wos$PM)
+```
+
+```{r}
+# change scopus DI based on pubmed PM, extract tibble for row update
+pre_pm_to_di_scopus <- pre_pubmed_di_pm %>% 
+  inner_join(pre_scopus_di_pm, by = join_by("PM"), suffix = c("_p", "_s")) %>%
+  filter(!str_equal(DI_p, DI_s)) %>%
+  select(PM, DI_p) %>%
+  rename(DI = DI_p)
+```
+
+```{r}
+# update scopus DI based on pubmed PM
+scopus <- scopus %>% rows_update(tibble(pre_pm_to_di_scopus), by = "PM")
+```
+
+```{r}
+# check update
+scopus %>% filter(PM %in% pre_pm_to_di_scopus$PM)
+```
+
+```{r}
+# create MAFLD query
+# filter articles with exact match
+mafld <- c("MAFLD",
+           "METABOLIC-DYSFUNCTION-ASSOCIATED FATTY LIVER DISEASE", 
+           "METABOLIC-\\(DYSFUNCTION\\)-ASSOCIATED FATTY LIVER DISEASE",
+           "METABOLIC-DYSFUNCTION ASSOCIATED FATTY LIVER DISEASE",
+           "METABOLIC-\\(DYSFUNCTION\\) ASSOCIATED FATTY LIVER DISEASE",
+           "METABOLIC DYSFUNCTION-ASSOCIATED FATTY LIVER DISEASE",
+           "METABOLIC \\(DYSFUNCTION\\)-ASSOCIATED FATTY LIVER DISEASE",
+           "METABOLIC \\(DYSFUNCTION\\) -ASSOCIATED FATTY LIVER DISEASE",
+           "METABOLIC DYSFUNCTION ASSOCIATED FATTY LIVER DISEASE",
+           "METABOLIC \\(DYSFUNCTION\\) ASSOCIATED FATTY LIVER DISEASE",
+           "METABOLIC-ASSOCIATED FATTY LIVER DISEASE",
+           "METABOLIC ASSOCIATED FATTY LIVER DISEASE")
+
+mafld_search <- paste(mafld, collapse = "|")
+```
+
+```{r}
+# number of records in pubmed
+pubmed %>% nrow()
+# 1728
+```
+
+```{r}
+# keep publications only with MAFLD term
+pubmed_mafld <- pubmed %>%
+  filter(str_detect(TI, mafld_search) |
+         str_detect(AB, mafld_search))
+nrow(pubmed_mafld)
+# 1446 remained
+# 282 removed
+```
+
+```{r}
+# check published year
+pubmed_mafld %>% count(PY)
+```
+
+```{r}
+# only keep papers published in 2020 onwards
+pubmed_mafld <- pubmed_mafld %>% filter(PY >= 2020)
+nrow(pubmed_mafld)
+# 1444 remained
+# 2 removed
+```
+
+```{r}
+# check language
+pubmed_mafld %>% count(LA)
+```
+
+```{r}
+# ENG SPA has English translation in the journal
+# ENG CHI is Chinese only
+
+pubmed_mafld <- pubmed_mafld %>% filter(LA %in%  c("ENG", "ENG SPA"))
+nrow(pubmed_mafld)
+# ENG CHI is Chinese only
+# 1406 remained
+# 38 removed
+```
+
+```{r}
+# check publication type
+pubmed_mafld %>% count(DT) %>% View()
+```
+
+```{r}
+# check ERRATUM
+pubmed_mafld %>% filter(str_detect(DT, "ERRATUM")) %>% nrow()
+# 6
+```
+
+```{r}
+# exclude article type "ERRATUM"
+pubmed_mafld <- pubmed_mafld %>% filter(!str_detect(DT, "ERRATUM"))
+nrow(pubmed_mafld)
+# 1400 remained
+# 6 removed
+```
+
+```{r}
+# check titles for correction
+pubmed_mafld %>%
+  filter(str_detect(TI, "ERRATUM") | str_detect(TI, "CORRECT") | str_detect(TI, "CORRIGENDUM"))
+
+# 6 published erratum 
+
+# 1 journal article
+# PMID: 37750860 DOI: 10.23736/S0031-0808.23.04850-4
+# This is corrected and republished from
+# PMID: 36533665 DOI: 10.23736/S0031-0808.22.04730-9
+```
+
+```{r}
+# PMID: 37750860 only in pubmed
+pubmed %>% filter(PM == "37750860")
+wos %>% filter(PM == "37750860")
+scopus %>% filter(PM == "37750860")
+```
+
+```{r}
+# PMID: 36533665 original does not exist in our dataset
+pubmed %>% filter(PM == "36533665")
+wos %>% filter(PM == "36533665" )
+scopus %>% filter(PM == "36533665")
+```
+
+```{r}
+#check retracted article
+pubmed %>% filter(str_detect(TI, "RETRACT"))
+#no retraction
+```
+
+```{r}
+# check PMID of pubmed literatues without DI
+pubmed_mafld %>%
+  filter(is.na(DI)) %>% pull(PM)
+# 37535913 EN
+# 35728960 non-EN and C1 NA -> remove
+# 35306559 EN
+# 35154609 EN
+# 34137522 EN
+# 33321005 EN
+```
+
+```{r}
+wos %>% filter(PM == "35728960") %>% View()
+scopus %>% filter(PM == "35728960") %>% View()
+
+# not in wos
+# in scopus, but the language is CHEZ -> exclude
+```
+
+```{r}
+# manually exclude non-English "35728960"
+pubmed_mafld_fix <- pubmed_mafld %>% filter(PM != "35728960")
+nrow(pubmed_mafld_fix)
+# 1399 remained
+# 1 removed
+# 39 removed in total based on language
+```
+
+```{r}
+# check duplicated rows based on title
+pubmed_mafld %>% group_by(TI) %>% filter(n()>1) %>% View()
+# different article
+```
+
+
+```{r}
+# check duplicated rows based on PMID
+pubmed_mafld %>% group_by(PM) %>% filter(n()>1) %>% View()
+# no result
+```
+
+```{r}
+# check duplicated rows in DI based on title
+pubmed_mafld %>% group_by(DI) %>%
+  filter(n()>1) %>%
+  View()
+# all NA
+```
+
+```{r}
+#needs fixation J9, C1, AU
+pubmed_mafld_fix %>% filter(is.na(AU) | is.na(C1) |is.na(SO)) %>% View()
+```
+
+```{r}
+# cleaning wos
+nrow(wos)
+# 1729
+```
+
+```{r}
+# remove publications without MAFLD term
+wos_mafld <- wos %>%
+  filter(str_detect(TI, mafld_search) |
+         str_detect(AB, mafld_search))
+nrow(wos_mafld)
+# 1500 remained
+# 229 removed
+```
+
+```{r}
+# check published year
+wos_mafld %>% count(PY)
+# all published from 2020; no need to filter
+```
+
+```{r}
+# check language
+wos_mafld %>% count(LA)
+```
+
+```{r}
+#check ENG SPA articles in pubmed
+wos_mafld %>% filter(DI %in% filter(pubmed_mafld, LA == "ENG SPA")$DI) %>% View()
+
+# "10.1016/j.ad.2023.01.004"        
+# "10.1016/j.medcli.2022.06.017"    translated
+# "10.1016/j.gastrohep.2022.02.005"
+# "10.1016/j.gastrohep.2021.12.004"
+# "10.1016/j.gastrohep.2021.10.003"
+# "10.1515/almed-2021-0009"        
+# "10.1016/j.gastrohep.2021.07.007"
+```
+
+```{r}
+pubmed_eng_spa <- pubmed_mafld %>% filter(LA == "ENG SPA") %>% pull(DI)
+```
+
+```{r}
+wos_mafld <- wos_mafld %>% filter(LA == "ENGLISH" | DI %in% pubmed_eng_spa)
+nrow(wos_mafld)
+# 1493 remained
+# 7 removed
+```
+
+```{r}
+# in French
+wos_mafld %>% filter(DI == "10.1016/j.nupar.2021.11.001") %>% View()
+# WOS:000755770900003
+```
+
+```{r}
+# manually remove one publication in French
+wos_mafld %>% filter(UT == "WOS:000755770900003")
+```
+
+```{r}
+# manually remove 10.1016/j.nupar.2021.11.001
+wos_mafld <- wos_mafld %>% filter(UT != "WOS:000755770900003")
+nrow(wos_mafld)
+# 1492 remaining
+# 1 removed; 8 removed in total by language
+```
+
+```{r}
+# after language filter
+wos_mafld %>% count(DT)
+```
+
+```{r}
+# filter eligible publication types
+wos_mafld <- wos_mafld %>%
+  filter(! DT %in% c("CORRECTION", "CORRECTION; EARLY ACCESS", "MEETING ABSTRACT", "PROCEEDINGS PAPER"))
+nrow(wos_mafld)
+# 1308 remaining
+# 184 removed
+```
+
+```{r}
+# check correction/erratum
+wos_mafld %>%
+  filter(str_detect(TI, "CORRECT") | str_detect(TI, "ERRATUM") | str_detect(TI, "CORRIGENDUM")) %>% View()
+#no results
+```
+
+```{r}
+# check retraction
+wos_mafld %>% filter(str_detect(TI, "RETRACT")) %>% View()
+```
+
+```{r}
+#check NA
+wos_mafld %>% summarise_all( ~ (sum(is.na(.))))
+```
+
+```{r}
+#check NA
+wos_mafld %>% summarise_all( ~ (sum(is.na(.))))
+```
+
+```{r}
+#OK until here
+wos_mafld %>% filter(is.na(DI)) %>% View()
+
+# keep track of WOS:000708495800001 both DI and PMI
+# wos_mafld_fix %>% filter(UT == "WOS:000708495800001") %>% View()
+```
+
+```{r}
+#check duplicates on title
+wos_mafld %>%
+  group_by(TI) %>%
+  filter(n()>1) %>%
+  arrange(TI, UT) %>%
+  View()
+
+# WOS:000709735200020 wrong index and duplicate -> remove
+# probably PMID: 34358568 DOI: 10.1016/j.jhep.2021.07.028 (the editorial that appears before the correct one)
+
+# PMID: 37068635 was deleted because it is a duplicate of PMID: 36720362
+# comment from pubmed; see also below
+```
+
+```{r}
+# same title but different DI and PM
+# correct DOI and PMID but duplicated
+wos_mafld %>%
+  filter(!is.na(DI) & !is.na(PM)) %>%
+  group_by(DI, PM) %>%
+  filter(n()==1) %>%
+  ungroup() %>%
+  group_by(TI, SR_FULL) %>%
+  filter(n()>1) %>%
+  select(TI, DI, PM, UT)
+
+# DI PM
+# 10.1016/j.ad.2023.01.004 36720362 	WOS:001029228000001 pubmed, wos
+# 10.1016/j.ad.2023.04.013 37068635 	WOS:001042202500001 scopus, wos
+
+# correct indexing but duplicated
+# process at the end of the procedure
+
+# Redirection Notice (Pubmed)
+# PMID: 37068635 was deleted because it is a duplicate of PMID: 36720362
+```
+
+```{r}
+# see which one is indexed in pubmed
+pubmed_mafld %>% filter(PM %in% c("36720362", "37068635"))%>% select(TI, DI, PM, SR_FULL)
+# 10.1016/j.ad.2023.01.004 	36720362
+```
+
+```{r}
+# check duplicates based on PM
+wos_mafld %>%
+  filter(!is.na(PM)) %>%
+  group_by(PM) %>%
+  filter(n()>1) %>%
+  arrange(PM, UT) %>%
+  View()
+# DI needs to be filled based on PM
+```
+
+```{r}
+# check duplicates based on DI
+wos_mafld %>%
+  filter(! is.na(DI)) %>%
+  group_by(DI) %>%
+  filter(n()>1) %>%
+  arrange(DI, UT)
+# WOS:000993891800001 wrong index (CGH)
+```
+
+```{r}
+# WOS:000993891800001 misindexed (CGH)
+wos %>% filter(SR_FULL == "TANG ASP, 2023, CLIN GASTROENTEROL H")
+#correct article exist
+
+# 10.1016/j.cgh.2022.05.024 	35671891 	WOS:000993891800002 (correct)
+# 10.1016/j.cgh.2022.04.003  NA  WOS:000993891800001 -a (wrong)
+```
+
+```{r}
+# NA in DI
+wos_mafld %>% filter(is.na(DI)) %>% View()
+```
+
+```{r}
+# NA in PM
+wos_mafld %>% filter(is.na(PM)) %>% View()
+
+# WOS:001070262900001
+# change doi from "10.1007/s12072-023-10576" to "10.1007/s12072-023-10576-z"
+```
+
+```{r}
+# check issues with CGH, duplicated PM
+wos_mafld %>%
+  group_by(PM) %>%
+  filter(n()>1 & J9 == "CLIN GASTROENTEROL H") %>%
+  arrange(PM, UT) %>%
+  View()
+```
+
+```{r}
+# check issues with CGH, missing DI or PM
+wos_mafld %>%
+  filter(is.na(DI) | is.na(PM)) %>%
+  filter(J9 == "CLIN GASTROENTEROL H") %>%
+  View()
+```
+
+```{r}
+# remove article based on title
+# remove 1 wrong indexing (WOS:000709735200020)
+wos_mafld_fix <- wos_mafld %>% filter(UT != "WOS:000709735200020")
+nrow(wos_mafld_fix)
+# 1307 remaining
+# 1 removed due to wrong indexing
+```
+
+```{r}
+# 10.1016/j.cgh.2022.05.024 35671891 WOS:000993891800002 (correct but reference missing)
+# 10.1016/j.cgh.2022.04.003 NA WOS:000993891800001 -a (wrong DI but has correct reference)
+# fill reference (CR) from wrong one and delete wrong one 
+wos_mafld_fix <- wos_mafld_fix %>%
+  mutate(CR = case_when(UT == "WOS:000993891800002" ~ wos_mafld_fix %>% filter(UT == "WOS:000993891800001") %>% pull(CR), 
+                        .default = as.character(CR))) %>%
+  filter(UT != "WOS:000993891800001")
+nrow(wos_mafld_fix)
+
+# 1306 remaining
+# 1 removed due to wrong indexing, 2 in total
+```
+
+```{r}
+# check correct CR
+wos_mafld_fix %>% filter(UT == "WOS:000993891800002")
+```
+
+```{r}
+# check duplicated paper
+wos_mafld_fix %>% filter(UT %in% c("WOS:000901967600043", "WOS:000950654500004")) %>% View()
+# DI only present in -a (WOS:000950654500004)
+# PM missing in both
+```
+
+```{r}
+# check PM in pubmed
+pubmed_mafld %>% filter(DI == "10.1016/j.cgh.2021.12.028")
+pubmed_mafld %>% filter(PM == "34958923")
+```
+
+```{r}
+# CIARDULLO S, 2022, CLIN GASTROENTEROL HEPATOL
+# COMMENT ON "AN OBSERVATIONAL DATA META-ANALYSIS ON THE DIFFERENCES IN PREVALENCE AND RISK FACTORS BETWEEN MAFLD VS NAFLD".	
+
+# WOS:000901967600043 change doi to "10.1016/j.cgh.2021.12.028"
+# WOS:000950654500004 duplicate and missing DI -> remove
+
+# PM missing but fill based on pubmed dataset later
+
+wos_mafld_fix <- wos_mafld_fix %>%
+  mutate(DI = case_when(UT == "WOS:000901967600043" ~ "10.1016/j.cgh.2021.12.028",
+                        .default = as.character(DI))) %>%
+  filter(UT != "WOS:000950654500004")
+
+nrow(wos_mafld_fix)
+# 1305 remaining
+# 1 removed due to wrong indexing, 3 in total
+```
+
+```{r}
+# check "NG CH, 2022, CLIN GASTROENTEROL H"
+# COMMENT ON "AN OBSERVATIONAL DATA META-ANALYSIS ON THE DIFFERENCES IN PREVALENCE AND RISK FACTORS BETWEEN MAFLD VS NAFLD" REPLY
+
+wos_mafld_fix %>% filter(TI == 'COMMENT ON "AN OBSERVATIONAL DATA META-ANALYSIS ON THE DIFFERENCES IN PREVALENCE AND RISK FACTORS BETWEEN MAFLD VS NAFLD" REPLY')
+```
+
+
+```{r}
+# WOS:000901967600044 correct but not in pubmed dataset -> add PMID 35151863
+
+wos_mafld_fix <- wos_mafld_fix %>% 
+  mutate(PM = case_when(UT == "WOS:000901967600044" ~ "35151863", .default = as.character(PM)))
+```
+
+```{r}
+#check duplicates based on updated DI
+wos_mafld_fix %>% group_by(DI) %>% filter(n()>1) %>% View()
+```
+
+```{r}
+# get list of PM with missing DI in wos
+wos_no_di <- wos_mafld_fix %>%
+  filter(is.na(DI) & (!is.na(PM)))%>%
+  pull(PM)
+```
+
+```{r}
+# extract data frame from pubmed for updating DI in wos
+pubmed_pm_to_wos_di <- pubmed %>%
+  select(PM, DI) %>%
+  filter(PM %in% wos_no_di) %>%
+  filter(!is.na(DI))
+```
+
+```{r}
+# row update missing wos DI based on pubmed PM
+wos_mafld_fix <- wos_mafld_fix %>% rows_update(tibble(pubmed_pm_to_wos_di), by= "PM")
+```
+
+```{r}
+# vector of DI for filling PM
+wos_no_pm <- wos_mafld_fix %>%
+  filter((!is.na(DI)) & is.na(PM)) %>%
+  pull(DI)
+```
+
+```{r}
+pubmed %>%
+  filter(DI %in% wos_no_pm) %>%
+  select(DI, PM)
+#no missing pairs betwen doi and PMID
+```
+
+
+```{r}
+pubmed_di_to_wos_pm <- pubmed %>%
+  select(PM, DI) %>%
+  filter(DI %in% wos_no_pm)
+```
+
+```{r}
+wos_mafld_fix %>% rows_update(tibble(pubmed_di_to_wos_pm), by= "DI") %>%
+  filter(DI %in% wos_no_pm) %>%
+  View()
+```
+
+```{r}
+#fill PMID based on DOI
+wos_mafld_fix <- wos_mafld_fix %>% rows_update(tibble(pubmed_di_to_wos_pm), by= "DI")
+```
+
+```{r}
+wos_mafld_fix %>%
+  filter(is.na(DI)) %>%
+  View()
+```
+
+```{r}
+wos_mafld_fix %>%
+  filter(is.na(PM)) %>%
+  View()
+```
+
+```{r}
+#duplicates title
+wos_mafld_fix %>% 
+  group_by(TI, DI, PM) %>%
+  filter(n()>1) %>%
+  View()
+```
+
+```{r}
+#complete duplicate detection based on title, DOI, and PMID
+wos_mafld_fix %>% 
+  group_by(TI, DI, PM) %>%
+  filter(n()>1) %>%
+  nrow()
+#12
+```
+
+```{r}
+wos_mafld_fix %>% 
+  filter(!is.na(DI)) %>%
+  group_by(DI) %>%
+  filter(n()>1) %>%
+  arrange(DI, UT) %>%
+  nrow()
+#12
+```
+
+```{r}
+wos_mafld_fix %>% 
+  filter(!is.na(PM)) %>%
+  group_by(PM) %>%
+  filter(n()>1) %>%
+  nrow()
+#12
+```
+
+```{r}
+#keep indexed earlier version based on WOS
+di_dup <- wos_mafld_fix %>% 
+  filter(!is.na(DI)) %>%
+  group_by(DI) %>%
+  filter(n()>1) %>%
+  ungroup()%>%
+  mutate(WOS = str_remove(UT, "WOS:")) %>%
+  mutate(WOS = as.numeric(WOS)) %>%
+  group_by(DI) %>%
+  filter(WOS == max(WOS))%>%
+  pull(UT)
+```
+
+```{r}
+pm_dup <- wos_mafld_fix %>% 
+  filter(!is.na(PM)) %>%
+  group_by(PM) %>%
+  filter(n()>1) %>%
+  ungroup()%>%
+  mutate(WOS = str_remove(UT, "WOS:")) %>%
+  mutate(WOS = as.numeric(WOS)) %>%
+  group_by(PM) %>%
+  filter(WOS == max(WOS))%>%
+  pull(UT)
+```
+
+```{r}
+# chedk di_dup and pm_dup
+length(di_dup)
+length(pm_dup)
+di_dup == pm_dup
+```
+
+```{r}
+# combine di_dup and pm_dup
+di_pm_dup <- union(di_dup, pm_dup)
+```
+
+```{r}
+# remove 
+wos_mafld_fix <- wos_mafld_fix %>% filter(!UT %in% di_pm_dup)
+nrow(wos_mafld_fix)
+# 1299 remained
+# 6 duplicates removed
+```
+
+```{r}
+# final papers in scopus after individual cleaning
+nrow(wos_mafld_fix)
+# 1299
+```
+
+```{r}
+# cleaning scopus
+nrow(scopus)
+# 
+```
+
+
+```{r}
+# filter MAFLD term
+scopus_mafld <- scopus %>%
+    filter(str_detect(TI, mafld_search) | str_detect(AB, mafld_search))
+nrow(scopus_mafld)
+# 1515
+```
+
+```{r}
+# check publication year
+scopus_mafld %>% count(PY)
+```
+
+```{r}
+# filter year >= 2000
+scopus_mafld <- scopus_mafld %>% filter(PY >= 2020)
+nrow(scopus_mafld)
+# 1514 remained
+# 1 removed
+```
+
+```{r}
+# check language
+scopus_mafld %>% count(LA)
+```
+
+```{r}
+scopus_spa <- scopus_mafld %>% filter(LA == "SPANISH") %>% filter() %>% select(DI, PM)
+pubmed_mafld %>% filter(DI %in% scopus_spa$DI)
+wos_mafld %>% filter(PM %in% scopus_spa$PM)
+# "SPANISH" in scopus are all in Spanish -> exclude
+```
+
+```{r}
+scopus_mafld <- scopus_mafld %>% filter(LA == "ENGLISH")
+nrow(scopus_mafld)
+# 1385 remained
+# 129 removed
+```
+
+```{r}
+# manually remove "10.1016/j.nupar.2021.11.001"
+scopus_mafld %>% filter(DI == "10.1016/j.nupar.2021.11.001")
+# 1 removed
+# 130 removed in total based on language
+```
+
+```{r}
+# manually remove "10.1016/j.nupar.2021.11.001"
+scopus_mafld <- scopus_mafld %>% 
+  filter(DI != "10.1016/j.nupar.2021.11.001")
+# 1379 remained
+# 1 removed
+# 130 removed in total based on language
+
+nrow(scopus_mafld)
+```
+
+```{r}
+scopus_mafld %>% count(DT)
+```
+
+```{r}
+# check BOOK CHAPTER
+scopus_mafld %>% filter(DT %in% c("BOOK CHAPTER")) %>% View()
+```
+
+```{r}
+#check NOTE and SHORT SURVEY
+scopus_mafld %>%
+  filter(DT %in% c("NOTE", "SHORT SURVEY")) %>%
+  View()
+
+# Examination 10.1016/j.cgh.2021.12.042 -> 1 exclusion
+# UT 2-S2.0-85124320587
+```
+
+```{r}
+# check correction
+scopus_mafld %>% filter(str_detect(TI, "CORREC"))
+# all publication type ERRATUM
+```
+
+```{r}
+# check retraction
+scopus_mafld %>% filter(str_detect(TI, "RETRACT"))
+```
+
+```{r}
+# remove book chapter, conference paper, erratum, and other materials
+scopus_mafld <- scopus_mafld %>%
+  filter(!DT %in% c("BOOK CHAPTER", "CONFERENCE PAPER", "ERRATUM")) %>%
+  filter(!UT == "2-S2.0-85124320587")
+nrow(scopus_mafld)
+# 1363 remaining
+# removed
+```
+
+```{r}
+scopus_mafld %>% summarise_all(~ sum(is.na(.)))
+```
+
+```{r}
+# check duplicates based on title
+scopus_mafld %>% group_by(TI) %>% filter(n()>1) %>% View()
+# different paper (letter and comment)
+```
+
+```{r}
+# check duplicates based on DI
+scopus_mafld %>% group_by(DI) %>% filter(n()>1) %>% View()
+# no duplicates
+```
+
+```{r}
+# check NA in PM
+scopus_mafld %>% filter(!is.na(PM)) %>% group_by(PM) %>% filter(n()>1) %>% View()
+# no duplicates
+```
+
+```{r}
+# get DI with missing PM
+scopus_no_pm <- scopus_mafld %>% filter(is.na(PM) & (!is.na(DI))) %>% pull(DI)
+```
+
+```{r}
+# check NA in pubmed
+pubmed %>% select(PM, DI) %>% filter(DI %in% scopus_no_pm) %>% summarise_all(~ sum(is.na(.)))
+```
+
+
+```{r}
+# fill scopus PM based on pubmed DI
+scopus_di_to_pubmed_pm <- pubmed %>%
+  select(PM, DI) %>%
+  filter(DI %in% scopus_no_pm)
+```
+
+```{r}
+# apply row update
+scopus_mafld_fix <- scopus_mafld %>%
+  rows_update(tibble(scopus_di_to_pubmed_pm), by = "DI")
+```
+
+```{r}
+# get scopus DI with missing PM
+scopus_fix_no_pm <- scopus_mafld_fix %>%
+  filter(is.na(PM) & (!is.na(DI))) %>% 
+  pull(DI)
+```
+
+```{r}
+# apply row update
+scopus_di_to_wos_pm <- wos_mafld_fix %>%
+  select(PM, DI) %>%
+  filter(DI %in% scopus_fix_no_pm) %>%
+  filter(!is.na(PM))
+
+scopus_di_to_wos_pm
+
+#no result
+
+#not indexed in pubmed 	37068635 10.1016/j.ad.2023.04.013
+#Redirection Notice
+#PMID: 37068635 was deleted because it is a duplicate of PMID: 36720362
+```
+
+
+```{r}
+#extract title in scopus_di_to_pm_2
+#wos_mafld_fix %>% filter(PM %in% c("37068635", "36720362"))
+#scopus_mafld %>% filter(DI %in% c("10.1016/j.ad.2023.01.004", "10.1016/j.ad.2023.04.013"))
+
+#DI
+#36720362	#10.1016/j.ad.2023.01.004
+
+#indexed differently in pubmed -> remove when merging datasets
+```
+
+
+```{r}
+# apply row update
+scopus_mafld_fix <- scopus_mafld_fix %>% rows_update(tibble(scopus_di_to_wos_pm), by = "DI")
+```
+
+```{r}
+#DI PM
+#10.1016/j.ad.2023.01.004 36720362 	WOS:001029228000001 pubmed, wos
+#10.1016/j.ad.2023.04.013 37068635 	WOS:001042202500001 scopus, wos
+
+# correct indexing but duplicated
+# process at the end of the procedure
+
+# Redirection Notice (Pubmed)
+# PMID: 37068635 was deleted because it is a duplicate of PMID: 36720362
+```
+
+```{r}
+pubmed_mafld_fix %>% filter(PM %in% c("36720362", "37068635"))
+wos_mafld_fix %>% filter(PM %in% c("36720362", "37068635"))
+scopus_mafld_fix %>% filter(PM %in% c("36720362", "37068635"))
+
+# 10.1016/j.ad.2023.01.004 36720362 WOS:001029228000001
+# remove from pubmed, wos after join as a duplicate
+
+# 10.1016/j.ad.2023.04.013 37068635 WOS:001042202500001 scopus, wos
+# keep this but fill data from pubmed above
+```
+
+```{r}
+pubmed_mafld_fix %>% filter(is.na(DI))
+wos_mafld_fix %>%  filter(is.na(DI))
+scopus_mafld_fix %>%  filter(is.na(DI))
+# 5 in pubmed
+# 2 in wos
+# 0 in scopus
+```
+
+```{r}
+# check post cleaning
+# correct mismatch between DOI and PMID between datasets (both not NA)
+post_pubmed_di_pm <- pubmed_mafld_fix %>% select(TI, DI, PM, SR_FULL) %>% filter((!is.na(DI)) & (!is.na(PM)))
+
+post_wos_di_pm <- wos_mafld_fix %>% select(TI, DI, PM, SR_FULL) %>% filter((!is.na(DI)) & (!is.na(PM)))
+
+post_scopus_di_pm <- scopus_mafld_fix %>% select(TI, DI, PM, SR_FULL) %>% filter((!is.na(DI)) & (!is.na(PM)))
+```
+
+```{r}
+# duplicates in wos based on DI or PM
+post_wos_di_pm %>% group_by(DI) %>% filter(n()>1) %>% nrow()
+post_wos_di_pm %>% group_by(PM) %>% filter(n()>1) %>% nrow()
+# 0
+# 0
+```
+
+```{r}
+# duplicates in wos based on DI or PM
+post_scopus_di_pm %>% group_by(DI) %>% filter(n()>1)
+post_scopus_di_pm %>% group_by(PM) %>% filter(n()>1)
+# 0
+# 0
+```
+
+```{r}
+# same DI but different title between wos and scopus
+post_pubmed_di_pm %>% 
+  inner_join(post_wos_di_pm, by = join_by("DI"), suffix = c("_w", "_s")) %>%
+  filter(!str_equal(TI_w, TI_s)) %>%
+  View()
+# pubmed has "." at the end of title
+```
+
+```{r}
+# same DI but different title between wos and scopus
+post_wos_di_pm %>% 
+  inner_join(post_scopus_di_pm, by = join_by("DI"), suffix = c("_w", "_s")) %>%
+  filter(str_equal(TI_w, TI_s)) %>%
+  View()
+# 209
+# remove <> (superscript, subscript) from pubmed
+```
+
+```{r}
+# same DI but different PM between wos and scopus
+post_wos_di_pm %>% 
+  inner_join(post_scopus_di_pm, by = join_by("DI"), suffix = c("_w", "_s")) %>%
+  filter(str_equal(PM_w, PM_s)) %>%
+  View()
+# 0
+```
+
+```{r}
+post_pubmed_di_pm %>%
+  mutate(TI = str_remove(TI, "\\.$")) %>%
+  inner_join(post_wos_di_pm, by = join_by("DI"), suffix = c("_p", "_w")) %>%
+  filter(!str_equal(TI_p, TI_w)) %>%
+  View()
+```
+
+```{r}
+# fix title in wos <XXX>
+wos_mafld_fix %>% filter(str_detect(TI, "<[^>\\s]*>")) %>% View()
+#45
+```
+
+```{r}
+# fix title in wos <XXX>
+wos_mafld_fix %>% filter(str_detect(TI, "<[^>]*>")) %>% View()
+#45
+```
+
+```{r}
+wos_mafld_fix %>% filter(str_detect(TI, "<[^>\\s]*>")) %>% 
+  mutate(TI = str_remove_all(TI, "<[^>\\s]*>")) %>% View()
+```
+
+```{r}
+# create unique identifier (UI) in pubmed
+# use DI first, then PM if DI is unavailable
+pubmed_mafld_ui <- pubmed_mafld_fix %>%
+  mutate(UI = case_when(!is.na(DI) ~ DI, 
+                        (is.na(DI) & !is.na(PM)) ~ PM))
+
+```
+
+```{r}
+# create unique identifier (UI) in wos
+wos_mafld_ui <- wos_mafld_fix %>%
+  mutate(UI = case_when(!is.na(DI) ~ DI, 
+                        (is.na(DI) & !is.na(PM)) ~ PM,
+                        (is.na(DI) & is.na(PM) ~ SR)))
+
+```
+
+```{r}
+#create unique identifier (UI) in scopus
+scopus_mafld_ui <- scopus_mafld_fix %>%
+  mutate(UI = case_when(!is.na(DI) ~ DI, 
+                        (is.na(DI) & !is.na(PM)) ~ PM, 
+                        (is.na(DI) & is.na(PM) ~ SR)))
+```
+
+```{r}
+pubmed_mafld_ui %>% filter(SR == "KHOKHAR N, 2021, RAWAL MED J")
+wos_mafld_ui %>% filter(SR == "KHOKHAR N, 2021, RAWAL MED J")
+scopus_mafld_ui %>% filter(SR == "KHOKHAR N, 2021, RAWAL MED J")
+```
+
+```{r}
+pubmed_mafld_ui %>% filter(is.na(UI))
+wos_mafld_ui %>% filter(is.na(UI))
+scopus_mafld_ui %>% filter(is.na(UI))
+# no NA in all datasets
+```
+
+```{r}
+# end of cleaning individual dataset
+# save workspace
+save.image(file = "rdata/02_cleaning.RData")
+```

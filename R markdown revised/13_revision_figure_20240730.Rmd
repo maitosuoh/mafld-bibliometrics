@@ -1,0 +1,75 @@
+---
+title: "MAFLD"
+output: html_document
+date: "2024-06-17"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(bibliometrix)
+library(tidyverse)
+library(ggtext)
+library(glue)
+library(ggrepel)
+library(countrycode)
+library(sf)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(rmapshaper)
+library(CoordinateCleaner)
+library(igraph)
+library(ggraph)
+library(tidygraph)
+library(patchwork)
+library(cowplot)
+library(openxlsx)
+```
+
+```{r}
+# load 09_flow_chart
+load(file="rdata/12_supp_fig.RData")
+```
+
+```{r}
+p1_b
+```
+
+
+```{r}
+ggsave("jpeg/Fig1b_revision.jpeg", plot = p1_b, width = 100, height = 50, unit = "mm")
+```
+
+```{r}
+p2_ex <- free(p2_a) +
+  free(p2_b) +
+  inset_element(p2_b2, 0.45, 0.55, 1, 1, align_to = 'full',
+                ignore_tag = TRUE)+
+  inset_element(p2_b_legend, 0.6, 0.55, 1, 0.575, 
+                align_to = 'full', ignore_tag = TRUE, on_top = FALSE)+
+  inset_element(p2_c, 0.625, 0, 1, 0.5, align_to = 'full')+
+  plot_layout(heights = c(3, 4))+
+  plot_annotation(tag_levels = 'a')
+
+ggsave("jpeg/Fig6_revision.jpeg", plot = p2_ex, width = 174, height = 182, unit = "mm")
+```
+
+```{r}
+p3_ex <- p3_a + p3_b
+
+ggsave("jpeg/Fig2_revision.jpeg", plot = p3_ex, width = 174, height = 74, unit = "mm")
+```
+
+
+```{r}
+p4_ex <- p4_c / p4_d
+
+ggsave("jpeg/Fig3_revision.jpg", plot = p4_ex, width = 174, height = 100, unit = "mm")
+```
+
+
+```{r}
+save.image("13_supp_table.RData")
+```
