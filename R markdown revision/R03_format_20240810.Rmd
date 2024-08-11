@@ -1,0 +1,300 @@
+---
+title: "MAFLD"
+output: html_document
+date: "2024-06-17"
+---
+
+```{r}
+library(bibliometrix)
+library(tidyverse)
+library(openxlsx)
+```
+
+
+```{r}
+rds_name_all <- list.files("rds_nafld/", pattern= "_all")
+rds_name_all
+```
+
+```{r}
+rds_path_all <- paste0("rds_nafld/", rds_name_all)
+rds_path_all
+```
+
+```{r}
+df_name <- rds_name_all %>% str_extract("[^_]+(?=_)")
+df_name
+```
+
+
+```{r}
+# use map to read all RDS
+rds_map <- map(rds_path_all, readRDS)
+```
+
+```{r}
+length(rds_map)
+```
+
+```{r}
+# create data frame for each data base
+for (i in 1:length(rds_map)){
+  assign(df_name[i], rds_map[[i]])
+ 
+}
+```
+
+```{r}
+nrow(pubmed)
+nrow(wos)
+nrow(scopus)
+```
+
+```{r}
+pubmed %>% head()
+```
+
+
+```{r}
+#select columns in pubmed
+pubmed <- pubmed %>%
+  select(AU, AF, DE, AID, OT, DT, AB, C1, PY, SO, LA, LID, PMID, SO2, J9, TI, DI, AU_UN, AU1_UN, SR_FULL, SR)
+```
+
+```{r}
+#change column names for consistency with other datasets
+pubmed <- pubmed %>%
+  rename(MS = DE) %>%
+  rename(DE = OT) %>%
+  rename(PM = PMID)
+```
+
+```{r}
+# add database information for pubmed
+pubmed <- pubmed %>% mutate(DB = "p")
+```
+
+```{r}
+#pubmed %>% select(DI) %>% head(n = 30)
+```
+
+```{r}
+# overwrite DI in a single format by extracting xxx.[DOI] from LID 
+# worked
+pubmed <- pubmed %>%
+  mutate(LID_di = str_extract(LID, "(?<=^|\\s)[^\\s]+(?=\\s\\[DOI\\])"))%>%
+  mutate(LID_di = na_if(LID_di, "")) %>%
+  mutate(LID_di = str_to_lower(LID_di))
+```
+
+```{r}
+pubmed %>% select(DI, LID, LID_di, SO2) %>% head(n = 30)
+```
+
+```{r}
+# extract DI from SO2
+pubmed <- pubmed %>%   
+  mutate(SO2_di = str_extract(SO2, "(?<=\\s\\DOI\\:\\s).*")) %>%
+  mutate(SO2_di = str_remove(SO2_di, "\\.\\sEPUB\\s.*")) %>%
+  mutate(SO2_di = str_remove(SO2_di, "\\.\\sECOLLECTION\\s.*")) %>%
+  mutate(SO2_di = str_remove(SO2_di, "\\.\\sPRINT\\s.*")) %>%
+  mutate(SO2_di = str_remove(SO2_di, "\\.$")) %>%
+  mutate(SO2_di = na_if(SO2_di, "")) %>%
+  mutate(SO2_di = str_to_lower(SO2_di))
+```
+
+```{r}
+# check DI and SO2_di are consistent
+pubmed %>% filter(str_equal(LID_di, SO2_di)) %>% nrow()
+pubmed %>% filter(!str_equal(LID_di, SO2_di)) %>% nrow()
+
+pubmed %>% filter(LID_di == SO2_di) %>% nrow()
+pubmed %>% filter(LID_di != SO2_di) %>% nrow()
+
+
+pubmed %>% filter((!is.na(LID_di)) & is.na(SO2_di)) %>% nrow()
+pubmed %>% filter(is.na(LID_di) & (!is.na(SO2_di))) %>% nrow()
+pubmed %>% filter(is.na(LID_di) & is.na(SO2_di)) %>% nrow()
+```
+
+```{r}
+# use SO2 for DOI
+pubmed <- pubmed %>% mutate(DI = SO2_di)
+```
+
+```{r}
+# check NA and non-NA in DI and SO2_di are exactly the same
+#pubmed %>% filter(is.na(DI)) %>% nrow()
+#pubmed %>% filter(!is.na(DI)) %>% nrow()
+
+##pubmed %>% filter(is.na(SO2_di)) %>% nrow()
+#pubmed %>% filter(!is.na(SO2_di)) %>% nrow()
+```
+
+```{r}
+# insepct wos
+wos %>% head()
+```
+
+
+```{r}
+# select necessary columns in wos
+wos <- wos %>%
+  select(AU, AF, CR, AB, C1, DE, DI, DT, ID, J9, JI, LA, PM, PY, SO, TC, TI, UT, AU_UN, AU1_UN, SR_FULL, SR)
+```
+
+```{r}
+# add database information for wos
+wos <- wos %>% mutate(DB = "w")
+```
+
+```{r}
+wos <- wos %>% mutate(DI = str_to_lower(DI))
+```
+
+
+```{r}
+# inspect scopus
+scopus %>% head()
+```
+
+
+```{r}
+# select necessary columns in scopus
+scopus <- scopus %>%
+  select(AU, TI, PY, SO, TC, DI, Affiliations, C1, AB, DE, ID, PubMed.ID, LA, JI, DT, UT, J9, AU_UN, AU1_UN, SR_FULL,	SR) %>%
+  rename(AF = "Affiliations") %>%
+  rename(PM = "PubMed.ID")
+```
+
+```{r}
+# add database information for scopus
+scopus <- scopus %>% mutate(DB = "s")
+```
+
+```{r}
+# format scopus DI
+# change to lower case and change blank character to NA
+scopus <- scopus %>%
+  mutate(DI = str_to_lower(DI)) %>%
+  mutate(across(where(is.character), ~na_if(., "")))
+```
+
+```{r}
+# format character columns
+# remove . from TI
+
+pubmed <- pubmed %>% mutate(TI = str_remove(TI, "\\.$"))
+wos <- wos %>% mutate(TI = str_remove(TI, "\\.$"))
+scopus <- scopus %>% mutate(DI = str_remove(DI, "\\.$"))
+```
+
+```{r}
+# define function for substituting dash
+gsub_dash <- function(x){
+  x <- gsub("\\p{Pd}", "-", x, perl=TRUE)
+  x <- gsub("−", "-", x)
+  return(x)
+}
+```
+
+```{r}
+# apply gsub_dash to characters
+pubmed <- pubmed %>% mutate(across(c(TI, AB, DE), gsub_dash))
+wos <- wos %>% mutate(across(c(TI, AB, DE), gsub_dash))
+scopus <- scopus %>% mutate(across(c(TI, AB, DE), gsub_dash))
+```
+
+```{r}
+# replace quotes
+# change “ ” to " "
+# change ‘ ’ to ' '
+replace_quotes <- function(x){
+  x %>%
+    str_replace_all("“|”", '"') %>%
+    str_replace_all("‘|’", "'")
+  }
+```
+
+```{r}
+# apply replace quotes for title and reference
+
+pubmed <- pubmed %>% mutate(TI = replace_quotes(TI))
+wos <- wos %>% mutate(TI = replace_quotes(TI))
+scopus <- scopus %>% mutate(TI = replace_quotes(TI))
+```
+
+```{r}
+# only wos contain <I> <SUP> <SUB>
+pubmed %>% filter(str_detect(TI, "<(|/)I>")) %>% nrow()
+wos %>% filter(str_detect(TI, "<(|/)I>")) %>% nrow()
+scopus %>% filter(str_detect(TI, "<(|/)I>")) %>% nrow()
+
+pubmed %>% filter(str_detect(TI, "<(|/)SUP>")) %>% nrow()
+wos %>% filter(str_detect(TI, "<(|/)SUP>")) %>% nrow()
+scopus %>% filter(str_detect(TI, "<(|/)SUP>")) %>% nrow()
+
+pubmed %>% filter(str_detect(TI, "<(|/)SUB>")) %>% nrow()
+wos %>% filter(str_detect(TI, "<(|/)SUB>")) %>% nrow()
+scopus %>% filter(str_detect(TI, "<(|/)SUB>")) %>% nrow()
+
+pubmed %>% filter(str_detect(TI, "<[^>]>")) %>% nrow()
+wos %>% filter(str_detect(TI, "<[^>]>")) %>% nrow()
+scopus %>% filter(str_detect(TI, "<[^>]>")) %>% nrow()
+
+
+```
+
+```{r}
+# remove <I> <SUP> <SUB> from wos
+wos <- wos %>% mutate(TI = str_remove_all(TI, "<[^>]*>"))
+```
+
+```{r}
+pubmed %>% filter(str_detect(TI, "\\*")) %>% nrow()
+wos %>% filter(str_detect(TI, "\\*")) %>% nrow()
+scopus %>% filter(str_detect(TI, "\\*")) %>% nrow()
+```
+
+
+```{r}
+pubmed %>% filter(str_detect(TI, "\\∗")) %>% nrow()
+wos %>% filter(str_detect(TI, "\\∗")) %>% nrow()
+scopus %>% filter(str_detect(TI, "\\∗")) %>% nrow()
+```
+
+
+```{r}
+# format title in scopus
+# change asterisk (∗) (U+2217) operator to asterisk (*) (U+002A) in scopus
+pubmed <- pubmed %>% mutate(TI = str_replace_all(TI, "\\∗", "\\*"))
+
+scopus <- scopus %>% mutate(TI = str_replace_all(TI, "\\∗", "\\*")) 
+```
+
+```{r}
+pubmed %>% filter(str_detect(TI, "\\&")) %>% nrow()
+wos %>% filter(str_detect(TI, "\\&")) %>% nrow()
+scopus %>% filter(str_detect(TI, "\\&")) %>% nrow()
+```
+
+
+```{r}
+pubmed <- pubmed %>% mutate(TI = str_replace_all(TI, "\\&", "AND")) 
+wos <- wos %>% mutate(TI = str_replace_all(TI, "\\&", "AND"))
+scopus <- scopus %>% mutate(TI = str_replace_all(TI, "\\&", "AND"))
+```
+
+
+```{r}
+pubmed %>% filter(str_detect(TI, "\\&")) %>% nrow()
+wos %>% filter(str_detect(TI, "\\&")) %>% nrow()
+scopus %>% filter(str_detect(TI, "\\&")) %>% nrow()
+```
+
+```{r}
+saveRDS(pubmed, "rds_nafld/pubmed_format")
+saveRDS(wos, "rds_nafld/wos_format")
+saveRDS(scopus, "rds_nafld/scopus_format")
+```
+

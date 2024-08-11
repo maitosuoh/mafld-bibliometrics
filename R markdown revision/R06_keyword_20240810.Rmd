@@ -1,0 +1,372 @@
+---
+title: "MAFLD"
+output: html_document
+date: "2024-06-17"
+---
+
+```{r}
+library(bibliometrix)
+library(tidyverse)
+library(openxlsx)
+```
+
+
+```{r}
+# use map to read all RDS
+df_nafld_clean <- readRDS("rds_nafld/df_nafld_clean")
+```
+
+
+```{r}
+df_nafld_clean %>% count(PY) %>%
+  ggplot(aes(PY, n))+
+  geom_col()+
+  theme_classic()
+```
+
+```{r}
+nrow(df_nafld_clean)
+
+df_de <- df_nafld_clean %>% filter(!is.na(DE))
+
+nrow(df_de)
+#7567
+```
+
+```{r}
+print(10421 -  7568)
+```
+
+
+```{r}
+df_de_long <- df_de %>% separate_longer_delim(DE, ";") %>%
+  filter(!is.na(DE))
+```
+
+```{r}
+# trim white space at both ends and change to lower case
+df_de_long <- df_de_long %>%
+  mutate(DE = str_trim(DE, side = "both")) %>%
+  mutate(DE = str_to_lower(DE))
+```
+
+```{r}
+df_de_long <- df_de_long %>%
+  mutate(DE = str_remove(DE, "\\.$")) %>%
+  mutate(DE = str_remove(DE, "^\\*")) %>%
+  mutate(DE = str_remove(DE, "\\|"))
+```
+
+
+```{r}
+# basic nafld and nash cleaning; exact match
+df_de_long <- df_de_long %>% mutate(DE = case_when(DE %in% c("non-alcoholic fatty liver disease",
+                                                             "nonalcoholic fatty liver disease",
+                                                             "non alcoholic fatty liver disease") ~ "nafld",
+                                     DE %in% c("non-alcoholic steatohepatitis",
+                                               "non alcoholic fatty liver disease",
+                                                "nonalcoholic steatohepatitis") ~ "nash",
+                                     .default = as.character(DE)))
+```
+
+```{r}
+# NAFLD both full spell and abb
+df_de_long %>% filter( (str_detect(DE, "non-alcoholic fatty liver disease") & str_detect(DE, "nafld")) |
+                         str_detect(DE, "nonalcoholic fatty liver disease") & str_detect(DE, "nafld")) %>% count(DE)
+```
+
+```{r}
+de_nafld_full_abb <- df_de_long %>%
+  filter( (str_detect(DE, "non-alcoholic fatty liver disease") & str_detect(DE, "nafld")) | 
+            (str_detect(DE, "nonalcoholic fatty liver disease") & str_detect(DE, "nafld"))|
+            (str_detect(DE, "non alcoholic fatty liver disease") & str_detect(DE, "nafld"))) %>%
+  count(DE) %>%
+  filter(DE != "non-alcoholic fatty liver disease (nafld), steatosis") %>%
+  pull(DE)
+
+de_nafld_full_abb
+```
+
+```{r}
+# full spell (abb) cleaning
+df_de_long <- df_de_long %>% mutate(DE = case_when(DE %in% de_nafld_full_abb ~ "nafld",
+                                     .default = as.character(DE)))
+```
+
+```{r}
+df_de_long %>% filter( str_detect(DE, "non-alcoholic fatty liver disease") |
+                        str_detect(DE, "non alcoholic fatty liver disease") |
+                         str_detect(DE, "nonalcoholic fatty liver disease")) %>% count(DE) %>%
+  arrange(desc(n))
+```
+
+
+```{r}
+df_de_long %>% filter( str_detect(DE, "non-alcoholic fatty liver diseases") |
+                        str_detect(DE, "non alcoholic fatty liver diseases") |
+                         str_detect(DE, "nonalcoholic fatty liver diseases")) %>% count(DE) %>%
+  arrange(desc(n))
+```
+
+```{r}
+df_de_long <- df_de_long %>% mutate(DE = case_when(DE %in% c("non-alcoholic fatty liver diseases",
+                                                             "non alcoholic fatty liver diseases",
+                                                             "nonalcoholic fatty liver diseases") ~ "nafld",
+                                     .default = as.character(DE)))
+```
+
+```{r}
+df_de_long %>% filter(str_detect(DE, "nafld")) %>% count(DE) %>% arrange(desc(n))
+```
+
+```{r}
+df_de_long <- df_de_long %>% mutate(DE = case_when(DE == "non-alcoholic fatty-liver disease (nafld)" ~ "nafld",
+                                     .default = as.character(DE)))
+```
+
+
+```{r}
+# NAFLD both full spell and abb
+df_de_long %>% filter( (str_detect(DE, "non-alcoholic steatohepatitis") & str_detect(DE, "nash")) |
+                         (str_detect(DE, "nonalcoholic steatohepatitis") & str_detect(DE, "nash")) |
+                         (str_detect(DE, "non alcoholic steatohepatitis") & str_detect(DE, "nash"))) %>% count(DE) %>% arrange(desc(n))
+```
+
+```{r}
+# NASH both full spell and abb
+de_nash_full_abb <- df_de_long %>% filter( (str_detect(DE, "non-alcoholic steatohepatitis") & str_detect(DE, "nash")) |
+                                             (str_detect(DE, "non alcoholic steatohepatitis") & str_detect(DE, "nash")) |
+                                            (str_detect(DE, "nonalcoholic steatohepatitis") & str_detect(DE, "nash"))) %>% 
+  count(DE) %>%
+  filter(!DE %in% c("metabolic disorders (mds), non-alcoholic steatohepatitis (nash)",
+                    "nash crn, non-alcoholic steatohepatitis clinical research network",
+                    "non-alcoholic steatohepatitis in children (nash in children)",
+                    "nonalcoholic steatohepatitis (nash) high-fat diet",
+                    "pediatric non-alcoholic steatohepatitis (nash)")) %>%
+  pull(DE)
+
+de_nash_full_abb
+```
+
+```{r}
+# full spell (abb) cleaning
+df_de_long <- df_de_long %>% mutate(DE = case_when(DE %in% de_nash_full_abb ~ "nash",
+                                     .default = as.character(DE)))
+```
+
+
+```{r}
+df_de_long %>% filter(str_detect(DE, "nash")) %>% count(DE) %>% arrange(desc(n))
+```
+
+
+
+```{r}
+df_de_long %>%
+  group_by(UI) %>%
+  distinct(DE, .keep = TRUE) %>%
+  ungroup() %>%
+  count(DE) %>% 
+  slice_max(n, n = 20) %>%
+  mutate(DE= str_to_sentence(DE)) %>%
+  ggplot(aes(n, fct_reorder(DE, n)))+
+  geom_col(width = 0.7)
+```
+
+```{r}
+df_de_long %>% filter(str_detect(DE, "hcc")) %>% count(DE)
+```
+
+```{r}
+# HCC
+df_de_long <- df_de_long %>% mutate(DE = case_when(DE %in% c("hepatocellular carcinoma",
+                                                             "hcc (hepatocellular carcinoma)",
+                                                "hcc hepatocellular carcinoma",
+                                                "hcc, hepatocellular carcinoma",
+                                                "hepatocellular cancer (hcc)",
+                                                "hepatocellular carcinoma (hcc)") ~ "hcc",
+                                     .default = as.character(DE)))
+```
+
+
+```{r}
+# hepatocellular carcinoma
+df_de_long %>% filter(str_detect(DE, "hepatocellular carcinoma")) %>% count(DE)
+# different words, no need for cleaning
+```
+
+```{r}
+df_de_long %>% filter(str_detect(DE, "diabetes")) %>% count(DE) %>% arrange(desc(n))
+```
+
+```{r}
+df_de_long %>% filter( (str_detect(DE, "type 2") | str_detect(DE, "type2") | str_detect(DE, "type-2") | str_detect(DE, "type ii")) 
+                       & str_detect(DE, "diabetes")) %>%
+  count(DE) %>% arrange(desc(n))
+```
+
+
+```{r}
+de_t2dm <- df_de_long %>% filter( (str_detect(DE, "type 2") |
+                                     str_detect(DE, "type2") |
+                                     str_detect(DE, "type-2") |
+                                     str_detect(DE, "type ii")) 
+                       & str_detect(DE, "diabetes")) %>%
+  count(DE) %>%
+  filter(!DE %in% c("chronic microvascular complications, type 2 diabetes",
+                    "inflammation, type 2 diabetes, cardiovascular disease",
+                    "youth-onset type 2 diabetes")) %>%
+  pull(DE)
+
+de_t2dm
+length(de_t2dm)
+```
+
+```{r}
+# type 2 diabetes
+df_de_long <- df_de_long %>% mutate(DE = case_when(DE %in% de_t2dm ~ "type 2 diabetes",
+                                     .default = as.character(DE)))
+```
+
+```{r}
+df_de_long %>% filter(str_detect(DE, "dm")) %>% count(DE)
+
+df_de_long %>% filter(str_detect(DE, "t2dm")) %>% count(DE)
+```
+
+```{r}
+df_de_long <- df_de_long %>% mutate(DE = case_when(DE %in% c("t2dm", "type 2 dm") ~ "type 2 diabetes",
+                                     .default = as.character(DE)))
+```
+
+
+```{r}
+df_de_long %>% count(DE) %>% arrange(desc(n))
+```
+
+```{r}
+df_de_long %>% filter(str_detect(DE, "diabetes")) %>% count(DE) %>% arrange(desc(n))
+```
+
+```{r}
+df_de_long %>% filter(DE == "type 2 diabetes mellitus") %>% count(DE)
+```
+
+
+```{r}
+# diabetes
+df_de_long <- df_de_long %>% mutate(DE = case_when(DE %in% c("diabetes mellitus",
+                                                "dm, diabetes mellitus",
+                                                "diabetes mellitus (dm)",
+                                                "diabetes melitus") ~ "diabetes",
+                                     .default = as.character(DE)))
+```
+
+
+```{r}
+df_de_long %>% filter(str_detect(DE, "hcc")) %>% count(DE)
+```
+
+```{r}
+#cardiovascular disease
+df_de_long %>% filter(str_detect(DE, "cardiovascular disease")) %>% count(DE)
+```
+
+
+```{r}
+df_de_long %>% filter(str_detect(DE, "cvd")) %>% count(DE)
+```
+
+```{r}
+df_de_long %>% filter(str_detect(DE, "cardiovascular disease") & str_detect(DE, "cv")) %>% count(DE) 
+```
+
+```{r}
+de_cvd <- df_de_long %>% filter(str_detect(DE, "cardiovascular disease") & str_detect(DE, "cv")) %>% count(DE) %>% pull(DE)
+
+de_cvd <- c(de_cvd, "cardiovascular disease")
+```
+
+```{r}
+df_de_long <- df_de_long %>% mutate(DE = case_when(DE %in% de_cvd ~ "cvd",
+                                     .default = as.character(DE)))
+```
+
+```{r}
+df_de_long %>% filter(str_detect(DE, "cv disease") | str_detect(DE, "cvd")) %>% count(DE)
+```
+
+```{r}
+df_de_long %>% filter(str_detect(DE, "microbiota")) %>% count(DE)
+```
+
+```{r}
+df_de_long <- df_de_long %>% mutate(DE = case_when(DE =="gut-microbiota" ~ "gut microbiota",
+                                     .default = as.character(DE)))
+```
+
+
+```{r}
+df_de_long %>% filter(str_detect(DE, "insulin resistance") & str_detect(DE, "ir")) %>% count(DE)
+```
+```{r}
+df_de_long <- df_de_long %>% mutate(DE = case_when(DE %in% c("insulin resistance (ir)",
+                                                             "insulin resistance, ir",
+                                                             "ir insulin resistance",
+                                                             "ir, insulin resistance") ~ "insulin resistance",
+                                     .default = as.character(DE)))
+```
+
+```{r}
+df_de_long %>% filter(str_detect(DE, "metabolic syndrome")) %>% count(DE)
+```
+
+```{r}
+df_de_long <- df_de_long %>% mutate(DE = case_when(DE %in% c("metabolic syndrome (mets)",
+                                                             "metabolic syndrome (ms)",
+                                                             "metabolic syndrome, mets",
+                                                             "metabolic syndromes",
+                                                             "mets metabolic syndrome",
+                                                             "ms, metabolic syndrome") ~ "metabolic syndrome",
+                                     .default = as.character(DE)))
+```
+
+
+```{r}
+p3_b <- df_de_long %>%
+  group_by(UI) %>%
+  distinct(DE, .keep = TRUE) %>%
+  ungroup() %>%
+  count(DE) %>% 
+  slice_max(n, n = 21) %>%
+  mutate(DE= str_to_sentence(DE)) %>%
+  mutate(DE = case_when(DE == "Nafld" ~ "NAFLD",
+                        DE == "Nash" ~ "NASH",
+                        DE == "Hcc" ~ "HCC",
+                        DE == "Cvd" ~ "Cardiovascular disease",
+                        .default = as.character(DE))) %>%
+  ggplot(aes(n, fct_reorder(DE, n)))+
+  geom_col(width = 0.7, fill = "#999999")+
+  scale_x_continuous(breaks = seq(0, 5000, 1000), 
+                   limits = c(0,5000), 
+                   expand = c(0,0))+
+  labs(x = "Count", y = "Keyword", tag = "b")+
+  theme_classic()+
+  theme(plot.margin = unit(c(0,0.5,0,0), "cm"),
+        plot.tag=element_text(size = 12, face="bold"),
+        axis.title = element_text(size = 8, face="bold"),
+        axis.text=element_text(size= 8, colour = "black"),
+        axis.line=element_line(linewidth =0.3, colour = "black"),
+        axis.ticks = element_line(linewidth =0.3, colour = "black"))
+```
+
+```{r}
+p3_b 
+```
+
+
+```{r}
+# save the plot to rds_"m"afld
+saveRDS(p3_b, "rds_mafld/p3_b")
+```
+

@@ -1,0 +1,494 @@
+---
+title: "MAFLD"
+output: html_document
+date: "2024-06-17"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(bibliometrix)
+library(tidyverse)
+library(ggtext)
+library(glue)
+library(ggrepel)
+library(countrycode)
+library(sf)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(rmapshaper)
+library(CoordinateCleaner)
+library(igraph)
+library(ggraph)
+library(tidygraph)
+library(patchwork)
+library(cowplot)
+```
+
+```{r}
+# load workspace after keyword analysis
+load("rdata/06_keyword.RData")
+```
+
+```{r}
+# create dataframe from wos and scopus for citation analysis
+# pubmed does not contain citation information
+df_cr <- df_bx %>% 
+  filter(DB_w == "w" | DB_s == "s" ) %>%
+  select(TI_p, TI_w, TI_s, CR_w, CR_s, TC_w, TC_s, DB_w, DB_s, DI_w, DI_s, DI, PM, TI, SO, J9, PY, AU_sur, PN2, PN3, UI)
+```
+
+```{r}
+# prepare a dataframe from wos for extracting reference information
+
+wos_cr <- df_cr %>%
+  filter(DB_w == "w" & !is.na(CR_w)) %>%
+  select(!ends_with(c("_s", "_p"))) %>%
+  rename(CR = "CR_w")
+
+nrow(wos_cr)
+#1295
+```
+
+```{r}
+# create DI list for searching references in wos
+cr_di <- df_bx %>% filter(!is.na(DI)) %>% filter(DB_w == "w" | DB_s == "s") %>% pull(DI)
+
+length(cr_di)
+# 1416
+
+length(unique(cr_di))
+# 1416
+
+sum(is.na(cr_di))
+# 0
+```
+
+```{r}
+# define a function for formatting characters into regular expression
+regex_format <- function(x){
+  x %>%
+    str_replace_all("\\(", "\\\\\\(") %>%
+    str_replace_all("\\)", "\\\\\\)") %>%
+    str_replace_all("\\[", "\\\\\\[") %>%
+    str_replace_all("\\]", "\\\\\\]") %>%
+    str_replace_all("\\{", "\\\\\\{") %>%
+    str_replace_all("\\}", "\\\\\\}") %>%
+    str_replace_all("\\.", "\\\\\\.") %>%
+    str_replace_all("\\?", "\\\\\\?") %>%
+    str_replace_all("\\*", "\\\\\\*") %>%
+    str_replace_all("\\+", "\\\\\\+") %>%
+    str_replace_all("\\$", "\\\\\\$") %>%
+    str_replace_all("\\|", "\\\\\\|") 
+}
+```
+
+```{r}
+# change special characters in cr_di to regular expression using regex_format
+cr_di <- regex_format(cr_di)
+```
+
+```{r}
+# separate wos_cr into long format
+wos_cr_long <- wos_cr %>%
+  separate_longer_delim(CR, ";")
+```
+
+```{r}
+# change CR_di to lower case and extract column for year in CR
+wos_cr_long <- wos_cr_long %>%
+  mutate(CR_di = str_extract(CR, "(?<=, DOI ).*")) %>%
+  mutate(CR_di = str_to_lower(CR_di)) %>%
+  mutate(CR_yr = str_extract(CR, "(?<=, )[:digit:]{4}(?=, )"))
+```
+
+```{r}
+# strange DI will be discarded during doi query search, so ignore them
+wos_cr_long %>% count(CR_di) %>%
+  arrange(str_length(CR_di))
+```
+
+```{r}
+# remove "." at the end in CR_di
+wos_cr_long <- wos_cr_long %>%
+  mutate(CR_di = str_remove(CR_di, "\\.$"))
+```
+
+```{r}
+# define function for matching DI in wos reference and assign UI (x: title, y: ui)
+wos_di_filter <- function(x){
+  wos_cr_long %>%
+    filter(str_detect(CR_di, x))
+}
+```
+
+```{r}
+# filter rows that contain each DOI in CR_di
+wos_cr_map <- map(cr_di, wos_di_filter) |> list_rbind()
+```
+
+```{r}
+# check filtered DI with unnecessary characters
+wos_cr_map %>% filter(str_detect(CR_di, "DOI")) %>% nrow()
+wos_cr_map %>% filter(str_detect(CR_di, "doi")) %>% nrow()
+wos_cr_map %>% filter(str_detect(CR_di, "doi ")) %>% nrow()
+# 0
+# 29
+# 29
+```
+
+```{r}
+# remove extra "DOI", "doi" from rows with duplicated DI
+wos_cr_map <- wos_cr_map %>% mutate(CR_di = str_remove_all(CR_di, "doi "))
+```
+
+```{r}
+# check duplicated DI separated by " ," in a single column
+# (before), (after)
+wos_cr_map %>%
+  mutate(CR_di = str_remove(CR_di, "\\.(?=, )")) %>%
+  mutate(before = str_extract(CR_di, "^[^,]+(?=, )")) %>%
+  mutate(after = str_extract(CR_di, "(?<=, ).+")) %>%
+  filter(str_equal(before, after)) %>%
+  View()
+# 93
+```
+
+```{r}
+# check unduplicated DI separated by "," in a single column
+wos_cr_map %>%
+  mutate(CR_di = str_remove(CR_di, "\\.(?=, )")) %>%
+  mutate(before = str_extract(CR_di, "^[^,]+(?=, )")) %>%
+  mutate(after = str_extract(CR_di, "(?<=, ).+")) %>%
+  filter(!str_equal(before, after)) %>%
+  View()
+# 37
+```
+
+```{r}
+# remove duplicated DI in a single column
+wos_cr_map <- wos_cr_map %>%
+  mutate(CR_di = str_remove(CR_di, "\\.(?=, )")) %>%
+  mutate(before = str_extract(CR_di, "^[^,]+(?=, )")) %>%
+  mutate(after = str_extract(CR_di, "(?<=, ).+")) %>%
+  mutate(CR_di = case_when(str_equal(before, after) ~ before,
+                        .default = as.character(CR_di))) %>%
+  select(-c(before, after))
+```
+
+```{r}
+# check DI contains ","
+wos_cr_map %>% filter(str_detect(CR_di, ",")) %>% View()
+# 37
+```
+
+```{r}
+# check DI separated by ", " in a single column
+wos_cr_map %>%
+  filter(str_detect(CR_di, ",")) %>%
+  count(CR_di) %>% arrange(desc(n))
+
+# 10.1016/s2468-1253(20)30091-1 (this is the true reference but excluded during selection)
+# 10.1053/j.gastro.2019.11.312 (delete)
+
+# 10.1016/j.hbpd.2022.01.0061499-3872 (delete)
+# 10.1016/j.hbpd.2022.01.006 (use) 
+
+# 10.1186/s12886-022-02757-5 (delete)
+# 10.1186/s12876-022-02612-3 (keep)
+
+# 10.1007/s00198-023-06687-w, 10.1080/13816810.2023.2254830 (keep)
+# 10.1109/oceanslimerick52467.2023.10244598	(delete)
+```
+
+```{r}
+# manually clean CR_di with duplicated DOI
+wos_cr_map <- wos_cr_map %>%
+  filter(CR_di != "10.1016/s2468-1253(20)30091-1, 10.1053/j.gastro.2019.11.312") %>%
+  mutate(CR_di = case_when(CR_di == "10.1016/j.hbpd.2022.01.0061499-3872, 10.1016/j.hbpd.2022.01.006" ~ "10.1016/j.hbpd.2022.01.006",
+                           CR_di == "10.1186/s12886-022-02757-5, 10.1186/s12876-022-02612-3" ~ "10.1186/s12876-022-02612-3",
+                           CR_di == "10.1007/s00198-023-06687-w, 10.1080/13816810.2023.2254830, 10.1109/oceanslimerick52467.2023.10244598" ~ "10.1007/s00198-023-06687-w",
+                           .default = as.character(CR_di)))
+```
+
+```{r}
+# check duplicated CR_di in the same publication
+wos_cr_map %>%
+  group_by(UI, CR_di) %>%
+  filter(n()>1)
+
+#	10.1111/jgh.16363 duplicated
+```
+
+```{r}
+# remove duplicated CR_di in the same publication
+wos_cr_map <- wos_cr_map %>%
+  group_by(UI, CR_di) %>%
+  distinct() %>%
+  ungroup()
+```
+
+```{r}
+# check if UI and CR_di are the same
+wos_cr_map %>% nrow()
+wos_cr_map %>% filter(UI == CR_di) %>% nrow()
+wos_cr_map %>% filter(UI != CR_di) %>% nrow()
+
+# 7144
+# 1
+# 7143
+```
+
+```{r}
+# remove UI = CR_di 
+wos_cr_map <- wos_cr_map %>% filter(UI != CR_di)
+```
+
+```{r}
+# prepare a dataframe from scopus for extracting reference information
+scopus_cr <- df_cr %>%
+  filter(DB_s == "s" & !is.na(CR_s)) %>%
+  select(!ends_with(c("_p", "_w"))) %>%
+  rename(CR = "CR_s")
+```
+
+```{r}
+# convert scous_cr into long format
+scopus_cr_long <- scopus_cr %>%
+  separate_longer_delim(CR, "; ")
+```
+
+```{r}
+# extract year in CR
+scopus_cr_long <- scopus_cr_long %>%
+  mutate(CR_yr = str_extract(CR, "(?<=\\()[:digit:]{4}(?=\\)$)"))
+```
+
+```{r}
+# different articles with the same title
+
+df_cr %>% group_by(TI) %>% filter(n()>1) %>% select(TI, DI, PM, AU_sur)
+
+# OBESITY AS A RISK FACTOR FOR GREATER SEVERITY OF COVID-19 IN PATIENTS WITH METABOLIC ASSOCIATED FATTY LIVER DISEASE
+# 32320741 10.1016/j.metabol.2020.154244 ZHENG
+# 32360211 10.1016/j.metabol.2020.154256 HUSSAIN
+
+# NON-ALCOHOLIC STEATOHEPATITIS
+# 36075749 10.1016/j.medcli.2022.06.017 ROMERO-GÓMEZ
+# NA 10.1016/j.mpdhp.2022.10.006 LEE
+```
+
+```{r}
+# check the same titles in each database
+df_cr %>% filter(!is.na(TI_p)) %>% group_by(TI_p) %>% filter(n()>1) 
+df_cr %>% filter(!is.na(TI_w)) %>% group_by(TI_w) %>% filter(n()>1) 
+df_cr %>% filter(!is.na(TI_s)) %>% group_by(TI_s) %>% filter(n()>1)
+
+# OBESITY AS A RISK FACTOR FOR GREATER SEVERITY OF COVID-19 IN PATIENTS WITH METABOLIC ASSOCIATED FATTY LIVER DISEASE
+```
+
+```{r}
+# check the COVID-19 papers
+
+# both
+scopus_cr_long %>% filter(str_detect(CR, "OBESITY AS A RISK FACTOR FOR GREATER SEVERITY OF COVID-19 IN PATIENTS WITH METABOLIC ASSOCIATED FATTY LIVER DISEASE")) %>% nrow()
+
+# 32320741 10.1016/j.metabol.2020.154244 ZHENG
+scopus_cr_long %>% filter(str_detect(CR, "OBESITY AS A RISK FACTOR FOR GREATER SEVERITY OF COVID-19 IN PATIENTS WITH METABOLIC ASSOCIATED FATTY LIVER DISEASE") & str_detect(CR, "ZHENG")) %>% nrow()
+# 30
+
+# 32360211 10.1016/j.metabol.2020.154256 HUSSAIN
+scopus_cr_long %>% filter(str_detect(CR, "OBESITY AS A RISK FACTOR FOR GREATER SEVERITY OF COVID-19 IN PATIENTS WITH METABOLIC ASSOCIATED FATTY LIVER DISEASE") & str_detect(CR, "HUSSAIN")) %>% nrow()
+# 1
+```
+
+```{r}
+# check NON-ALCOHOLIC STEATOHEPATITIS with title and first author
+
+# 36075749 10.1016/j.medcli.2022.06.017 ROMERO-GÓMEZ
+scopus_cr_long %>% filter(str_detect(CR, "NON-ALCOHOLIC STEATOHEPATITIS") & str_detect(CR, "^ROMERO-GÓMEZ"))
+
+scopus_cr_long %>% filter(str_detect(CR, "NON-ALCOHOLIC STEATOHEPATITIS") & str_detect(CR, "^ROMERO-GOMEZ"))
+
+# NA 10.1016/j.mpdhp.2022.10.006 LEE
+scopus_cr_long %>% filter(str_detect(CR, "NON-ALCOHOLIC STEATOHEPATITIS") & str_detect(CR, "^LEE"))
+
+# no match in CR -> ignore 
+```
+
+```{r}
+# check NAFLD in wos
+wos_cr_map %>% filter(str_detect(CR_di, "10.1016/j\\.medcli.2022\\.06\\.017")) %>% nrow()
+wos_cr_map %>% filter(str_detect(CR_di, "10.1016/j\\.mpdhp\\.2022\\.10\\.006")) %>% nrow()
+```
+
+```{r}
+# prepare a dataframe for getting title queries in CR
+
+# duplicated titles
+df_ti_dup <- df_bx %>% filter(DB_w == "w" | DB_s == "s") %>% group_by(TI) %>% filter(n()>1)
+#4
+
+# unique titles
+df_ti_uni <- df_bx %>% filter(DB_w == "w" | DB_s == "s") %>% anti_join(df_ti_dup, by = join_by(UI))
+#1416
+```
+
+```{r}
+# create title queries for citation analysis from different databases
+pubmed_ti <- df_ti_uni %>% filter(!is.na(TI_p)) %>% pull(TI_p)
+wos_ti <- df_ti_uni %>% filter(!is.na(TI_w)) %>% pull(TI_w)
+scopus_ti <- df_ti_uni %>% filter(!is.na(TI_s)) %>% pull(TI_s)
+```
+
+```{r}
+# create doi to add for matched titles
+pubmed_ui <- df_ti_uni %>%  filter(!is.na(TI_p)) %>% pull(UI)
+wos_ui <- df_ti_uni %>% filter(!is.na(TI_w)) %>% pull(UI)
+scopus_ui <- df_ti_uni %>%  filter(!is.na(TI_s)) %>% pull(UI)
+```
+
+```{r}
+pubmed_ui %>% union(wos_ui) %>% union(scopus_ui) %>% length() 
+#1416 = row number of df_cr_uni
+```
+
+```{r}
+# define function for matching title in scopus reference and assigning UI
+scopus_ti_filter <- function(x, y){
+  scopus_cr_long %>%
+    filter(str_detect(CR, x)) %>%
+    mutate(CR_di = y)
+}
+```
+
+```{r}
+# change title to regular expression
+pubmed_ti <- regex_format(pubmed_ti)
+wos_ti <- regex_format(wos_ti) 
+scopus_ti <-  regex_format(scopus_ti)
+```
+
+```{r}
+# to specifically pick up titles, change the query to "., xxx , "
+pubmed_ti <- str_c("., ", pubmed_ti, ", ")
+wos_ti <- str_c("., ", wos_ti, ", ")
+scopus_ti <-  str_c("., ", scopus_ti, ", ")
+```
+
+```{r}
+# match title from pubmed to CR and assign DOI as CR_di
+scopus_cr_map_p <- map2(pubmed_ti, pubmed_ui, scopus_ti_filter) |> list_rbind()
+```
+
+```{r}
+# match title from wos to CR and assign DOI as CR_di
+scopus_cr_map_w <- map2(wos_ti, wos_ui, scopus_ti_filter) |> list_rbind()
+```
+
+```{r}
+# match title from scopus to CR and assign DOI as CR_di
+scopus_cr_map_s <- map2(scopus_ti, scopus_ui, scopus_ti_filter) |> list_rbind()
+```
+
+```{r}
+df_cr %>% filter(!is.na(TI_s)) %>% group_by(TI_s) %>% filter(n()>1)
+```
+
+```{r}
+# create queries for title and authors for duplicated title
+dup_ti <- dup_ti <- df_cr %>% filter(!is.na(TI_s)) %>% group_by(TI_s) %>% filter(n()>1) %>% pull(TI_s) %>% unique()
+dup_ti
+```
+
+```{r}
+df_cr %>% filter(TI_s == dup_ti) %>% View()
+```
+
+
+```{r}
+dup_au <- df_cr %>% filter(TI_s == dup_ti) %>% pull(AU_sur)
+dup_au
+
+```
+
+```{r}
+dup_ui <- df_cr %>% filter(TI_s == dup_ti) %>% pull(UI)
+dup_ui
+```
+
+```{r}
+# check the title in queries from other databases
+df_cr %>% filter(str_detect(TI_p, dup_ti))
+df_cr %>% filter(str_detect(TI_w, dup_ti))
+# indexed in the same way in other two database (with LETTER TO THE EDITOR:)
+```
+
+```{r}
+# define function that matches title and author and assigns UI
+scopus_dup_filter <- function(x, y){
+  scopus_cr_long %>%
+    filter(str_detect(CR, dup_ti) & str_detect(CR, x)) %>%
+    mutate(CR_di = y)
+}
+```
+
+```{r}
+# match title aud author for each duplicated title and assign UI as CR_di
+scopus_cr_map_d <- map2(regex_format(dup_au), dup_ui, scopus_dup_filter) |> list_rbind()
+```
+
+```{r}
+# check duplicated titles have correct UI
+scopus_cr_long %>% filter(str_detect(CR, dup_ti))
+scopus_cr_long %>% filter(str_detect(CR, dup_ti) & str_detect(CR, dup_au[1])) 
+scopus_cr_long %>% filter(str_detect(CR, dup_ti) & str_detect(CR, dup_au[2])) 
+```
+
+```{r}
+# combine scopus_cr_map and only keep distinct references for each publication
+scopus_cr_map <- scopus_cr_map_p %>%
+  bind_rows(scopus_cr_map_w) %>%
+  bind_rows(scopus_cr_map_s) %>%
+  bind_rows(scopus_cr_map_d) %>%
+  group_by(UI, CR_di) %>%
+  distinct(.keep_all = TRUE) %>%
+  ungroup()
+nrow(scopus_cr_map)
+```
+
+```{r}
+scopus_cr_map %>% filter(is.na(UI))
+scopus_cr_map %>% filter(is.na(CR_di))
+```
+
+```{r}
+# check records with the same doi for UI and CR_di
+scopus_cr_map %>% filter(UI == CR_di)
+
+# 10.3390/metabo12100954	 
+# same title but different article in CR
+
+# 10.20517/2394-5079.2021.08
+# maybe "Steatohepatitic hepatocellular carcinoma, a morphologic indicator of associated metabolic risk factors: A study from India"
+
+# wrong mismatch
+```
+
+```{r}
+# remove records with the same doi for UI and CR_di
+scopus_cr_map <- scopus_cr_map %>% filter(UI != CR_di)
+```
+
+```{r}
+df_bx %>% filter(!is.na(TC_s)|!is.na(TC_w)) %>% nrow()
+df_bx %>% filter(!is.na(CR_s)|!is.na(CR_w)) %>% nrow()
+```
+
+```{r}
+# end of extracting reference
+# save the workspace
+save.image(file = "rdata/07_reference.RData")
+```

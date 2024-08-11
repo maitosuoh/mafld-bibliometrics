@@ -1,0 +1,329 @@
+---
+title: "MAFLD"
+output: html_document
+date: "2024-06-17"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(bibliometrix)
+library(tidyverse)
+library(ggtext)
+library(glue)
+library(ggrepel)
+library(countrycode)
+library(sf)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(rmapshaper)
+library(CoordinateCleaner)
+library(igraph)
+library(ggraph)
+library(tidygraph)
+library(patchwork)
+library(cowplot)
+```
+
+```{r}
+# load 8_co-citation
+load(file="rdata/09_co-citation.RData")
+```
+
+```{r}
+# no of publications from databases
+nrow(pubmed)
+nrow(wos)
+nrow(scopus)
+# 1728
+# 1729
+# 1736
+```
+
+```{r}
+# no of publications after cleaning of each dataset
+nrow(pubmed_mafld_ui)
+nrow(wos_mafld_ui)
+nrow(scopus_mafld_ui)
+# 1399
+# 1299
+# 1363
+```
+
+```{r}
+# no of publications after merge and cleaning
+nrow(df_bx)
+# 1469
+```
+
+```{r}
+# number of publications after merge and cleaning
+nrow(df_c1)
+```
+
+```{r}
+# no of publication count, year, type
+df_bx %>% nrow()
+df_bx %>% filter(!is.na(PY)) %>% nrow()
+df_bx %>% filter(!is.na(DT)) %>% nrow()
+```
+
+```{r}
+# no of publications with country information
+df_c1_long %>% filter(!is.na(CN)) %>% count(UI) %>% nrow()
+#1469
+```
+
+```{r}
+# no of publications for co-occurence network analysis
+df_c1_multi %>% nrow()
+#328
+```
+
+```{r}
+# no of publications with keywords
+df_de %>% filter(!is.na(DE)) %>% nrow()
+# 1195
+```
+
+```{r}
+# citation counts present from wos or scopus
+df_bx %>% filter(!is.na(TC_w) | !is.na(TC_s)) %>% nrow()
+# 1418
+```
+
+```{r}
+df_bx %>% filter(is.na(TC_w) & is.na(TC_s)) %>% nrow()
+# 51
+
+df_bx %>% 
+  filter(is.na(TC_w) & is.na(TC_s)) %>% 
+  summarise(across(starts_with("DT_"), ~sum(is.na(.x))))
+# all publications without citation counts are only in pubmed
+```
+
+
+```{r}
+# number of publicatoins is wos or scopus
+df_bx %>% filter(DB_w == "w" | DB_s == "s") %>% nrow()
+# 1418
+
+# missing citation counts
+df_bx %>% filter(!is.na(TC_w) | !is.na(TC_s) ) %>% nrow()
+# 1418
+
+# missing reference information
+df_bx %>% filter( (!is.na(TC_w) | !is.na(TC_s)) & ((!is.na(CR_w) | (!is.na(CR_s))))) %>% nrow()
+# 1413
+
+# citation counts present but reference missing
+df_bx %>% filter( (!is.na(TC_w) | !is.na(TC_s)) & (is.na(CR_w) & is.na(CR_s))) %>% nrow()
+# 5
+```
+
+```{r}
+# no of publications for co-citation analysis
+tbl_gr_cr_full %>% activate(nodes) %>% as_tibble() %>% nrow()
+# 722
+```
+
+```{r}
+# create flow chart for literature search and selection
+s1 <- tibble(x= 0:150, y= 0:150)  %>% 
+  ggplot(aes(x, y)) +
+  scale_x_continuous(minor_breaks = seq(0, 100, 10)) +
+  scale_y_continuous(minor_breaks = seq(0, 100, 10)) +
+  theme_linedraw()
+```
+
+```{r}
+# create boxes for literature databases
+s1 <- s1 +
+  geom_rect(xmin = 0, xmax=40, ymin=145, ymax=150, color='black', fill="#fddaec", size=0.3) +
+  annotate('text', x = 1.5, y = 147.5,label= 'Records identified from\nPubMed (n = 1728)', size=2.8, hjust = 0) +
+  geom_rect(xmin = 50, xmax=90, ymin=145, ymax=150, color='black', fill='#ccebc5', size=0.3) +
+  annotate('text', x = 51.5, y = 147.5,label= 'Records identified from\nWeb of Science (n = 1729)',size=2.8, hjust = 0)+
+  geom_rect(xmin = 100, xmax=140, ymin=145, ymax=150, color='black', fill='#fed9a6', size=0.3) +
+  annotate('text', x = 101.5, y = 147.5,label= 'Records identified from\nScopus (n = 1736)', size = 2.8, hjust = 0)
+```
+
+```{r}
+# add first exclusion boxes
+s1 <- s1 +
+  geom_rect(xmin = 10, xmax = 50, ymin = 122.5, ymax = 142.5, color='black', fill="white", size=0.3) +
+  geom_rect(xmin = 60, xmax = 100, ymin = 122.5, ymax = 142.5, color='black', fill='white', size=0.3) +
+  geom_rect(xmin = 110, xmax = 150, ymin = 122.5, ymax= 142.5, color='black', fill='white', size=0.3)
+```
+
+```{r}
+# contents of the exclusion box
+s1 <- s1 +
+  annotate('text', x = 11.5, y = 141,
+           label= "Records excluded (n = 329):\n   No MAFLD term (n = 282)\n   Before 2020 (n = 2)\n   Not English (n = 39)\n   Ineligible publication type\n   (n = 6)",
+           size = 2.8, hjust = 0, vjust = 1) +
+  annotate('text', x = 61.5, y = 141,
+           label= "Records excluded (n = 430):\n   No MAFLD term (n = 229)\n   Not English (n = 8)\n   Ineligible publication type\n   (n = 184)\n   Incorrect indexing (n = 3)\n   Duplicates (n = 6)",
+           size = 2.8, hjust = 0, vjust = 1) +
+  annotate('text', x = 111.5, y = 141,
+           label= "Records excluded (n = 373):\n   No MAFLD term (n = 221)\n   Before 2020 (n = 1)\n   Not English (n = 130)\n   Ineligible publication type\n   (n = 21)",
+           size = 2.8, hjust = 0, vjust = 1)
+```
+
+```{r}
+# add vertical arrows for literature selection in each database
+s1 <- s1 +
+  geom_segment(x = 5, xend = 5, y = 145, yend = 120.5, size=0.3, linejoin = "mitre", lineend = "butt",
+    arrow = arrow(length = unit(1, "mm"), type= "closed"))+
+  geom_segment(x = 55, xend = 55, y = 145, yend = 120.5, size=0.3, linejoin = "mitre", lineend = "butt",
+    arrow = arrow(length = unit(1, "mm"), type= "closed"))+
+  geom_segment(x = 105, xend = 105, y = 145, yend= 120.5, size=0.3, linejoin = "mitre", lineend = "butt",
+    arrow = arrow(length = unit(1, "mm"), type= "closed"))
+```
+
+```{r}
+# add horizontal arrows for first exclusion
+s1 <- s1 +
+  geom_segment(x = 5, xend = 9.5, y = 132.5, yend=132.5, size=0.3, linejoin = "mitre", lineend = "butt",
+    arrow = arrow(length = unit(1, "mm"), type= "closed"))+
+  geom_segment(x = 55, xend = 59.5, y = 132.5, yend=132.5, size=0.3, linejoin = "mitre", lineend = "butt",
+    arrow = arrow(length = unit(1, "mm"), type= "closed"))+
+  geom_segment(x = 105, xend = 109.5, y = 132.5, yend=132.5, size=0.3, linejoin = "mitre", lineend = "butt",
+    arrow = arrow(length = unit(1, "mm"), type= "closed"))
+```
+
+```{r}
+# add box after literature selection in each database
+s1 <- s1 +
+  geom_rect(xmin = 0, xmax=40, ymin=  115, ymax = 120, color='black', fill="#fddaec", size=0.3) +
+  annotate('text', x = 1.5, y = 117.5,label= 'Eligible records from\nPubMed (n = 1399)', size= 2.8, hjust = 0) +
+  geom_rect(xmin = 50, xmax=90, ymin=  115, ymax = 120, color='black', fill='#ccebc5', size=0.3) +
+  annotate('text', x = 51.5, y = 117.5,label= 'Eligible records from\nWeb of Science (n = 1299)', size=2.8, hjust  = 0)+
+  geom_rect(xmin = 100, xmax=140, ymin= 115, ymax = 120, color='black', fill='#fed9a6', size=0.3) +
+  annotate('text', x = 101.5, y = 117.5,label= 'Eligible records from\nScopus (n = 1363)', size=2.8, hjust = 0)
+```
+
+```{r}
+# add lines and arrows for merging three datasets
+s1 <- s1 +
+  geom_segment(x = 5, xend = 5, y = 115, yend = 112.5, size=0.3, linejoin = "mitre", lineend = "butt")+
+  geom_segment(x = 55, xend = 55, y = 115, yend = 110.5, size=0.3, linejoin = "mitre", lineend = "butt",
+    arrow = arrow(length = unit(1, "mm"), type= "closed"))+
+  geom_segment(x = 105, xend = 105, y = 115, yend = 112.5, size=0.3, linejoin = "mitre", lineend = "butt")+
+  geom_segment(x = 5, xend = 105, y = 112.5, yend = 112.5, size=0.3, linejoin = "mitre", lineend = "butt")
+```
+
+```{r}
+# add box after merging three datasets
+s1 <- s1 +
+  geom_rect(xmin = 50, xmax=90, ymin=  105, ymax = 110, color='black', fill = "white", size=0.3) +
+  annotate('text', x = 51.5, y = 107.5,label= 'Records included (n = 1472)', size=2.8, hjust  = 0)
+```
+
+```{r}
+# add exclusion after merge
+s1 <- s1 +
+  geom_segment(x = 55, xend = 55, y = 105, yend = 95.5, size=0.3, linejoin = "mitre", lineend = "butt",
+    arrow = arrow(length = unit(1, "mm"), type= "closed"))+
+  geom_segment(x = 55, xend = 59.5, y = 100, yend = 100, size=0.3, linejoin = "mitre", lineend = "butt",
+    arrow = arrow(length = unit(1, "mm"), type= "closed"))+
+  geom_rect(xmin = 60, xmax= 100, ymin=  97.5, ymax = 102.5, color='black',fill = "white", size=0.3) +
+  annotate('text', x = 61.5, y = 100,label= 'Records excluded (n = 3):\n   Duplicates (n = 3)', size=2.8, hjust  = 0)
+```
+
+```{r}
+# add box for inclusion
+s1 <- s1 +
+  geom_rect(xmin = 50, xmax = 90, ymin=  90, ymax = 95, color='black', fill = "white", size=0.3) +
+  annotate('text', x = 51.5, y = 92.5,label= 'Records included (n = 1469)', size=2.8, hjust  = 0)
+```
+
+```{r}
+# add exclusion for citation analysis
+s1 <- s1 +
+  geom_segment(x = 55, xend = 55, y = 90, yend = 87.5, size=0.3, linejoin = "mitre", lineend = "butt")+
+    geom_segment(x = 5, xend = 55, y = 87.5, yend = 87.5, size=0.3, linejoin = "mitre", lineend = "butt")+
+ geom_segment(x = 85, xend = 85, y = 90, yend = 87.5, size=0.3, linejoin = "mitre", lineend = "butt")+
+    geom_segment(x = 85, xend = 105, y = 87.5, yend = 87.5, size=0.3, linejoin = "mitre", lineend = "butt")
+```
+
+```{r}
+# downstream on the right (citation)
+s1 <- s1 +
+ geom_segment(x = 105, xend = 105, y = 87.5, yend = 75.5, size=0.3, linejoin = "mitre", lineend = "butt", 
+              arrow = arrow(length = unit(1, "mm"), type= "closed"))+
+  geom_segment(x = 105, xend = 109.5, y = (77.5+85)/2, yend = (77.5+85)/2, size=0.3, linejoin = "mitre", lineend = "butt",
+               arrow = arrow(length = unit(1, "mm"), type= "closed"))+
+  geom_rect(xmin = 110, xmax = 150, ymin=  77.5, ymax = 85, color='black', fill = "white", size=0.3) +
+  annotate('text', x = 111.5, y = (77.5+85)/2,label= 'Records excluded (n = 51):\n   Not in Web of Science or\n   Scopus (n = 51)', size=2.8, hjust  = 0, vjust = 0.5)+
+ geom_rect(xmin = 100, xmax = 140, ymin=  70, ymax = 75, color='black', fill = "white", size=0.3) +
+  annotate('text', x = 101.5, y = 72.5,label= 'Records for citation analysis\n(n = 1418)', size=2.8, hjust  = 0)
+```
+
+```{r}
+# last component on the right (co-citation analysis)
+s1 <- s1 +
+ geom_segment(x = 105, xend = 105, y = 70, yend = 58, size=0.3, linejoin = "mitre", lineend = "butt",
+    arrow = arrow(length = unit(1, "mm"), type= "closed"))+
+  geom_segment(x = 105, xend = 109.5, y = (60+67.5)/2, yend = (60+67.5)/2, size=0.3, linejoin = "mitre", lineend = "butt",
+    arrow = arrow(length = unit(1, "mm"), type= "closed"))+
+   geom_rect(xmin = 110, xmax = 150, ymin=  60, ymax = 67.5, color='black', fill = "white", size=0.3) +
+  annotate('text', x = 111.5, y = (60+67.5)/2,label= 'Records excluded (n = 696):\n   Did not meet conditions\n   for co-citation (n = 696)', size=2.8, hjust  = 0, vjust = 0.5)+
+ geom_rect(xmin = 100, xmax = 140, ymin=  50, ymax = 57.5, color='black', fill = "white", size=0.3) +
+  annotate('text', x = 101.5, y = (50+57.5)/2,label= 'Records for co-citation network\nanalysis (n = 722)', size=2.8, hjust  = 0)
+```
+
+```{r}
+# downstream middle (keyword)
+s1 <- s1 +
+ geom_segment(x = 70, xend = 70, y = 90, yend = 75.5, size=0.3, linejoin = "mitre", lineend = "butt",
+    arrow = arrow(length = unit(1, "mm"), type= "closed"))+
+  geom_segment(x = 70, xend = 65.5, y = (77.5+85)/2, yend = (77.5+85)/2, size=0.3, linejoin = "mitre", lineend = "butt",
+    arrow = arrow(length = unit(1, "mm"), type= "closed"))+
+   geom_rect(xmin = 25, xmax = 65, ymin=  77.5, ymax = 85, color='black', fill = "white", size=0.3) +
+  annotate('text', x = 26.5, y = (77.5+85)/2,label= 'Records excluded (n = 274):\n   Missing keywords (n = 274)', size=2.8, hjust  = 0)+
+  geom_rect(xmin = 50, xmax = 90, ymin=  70, ymax = 75, color='black', fill = "white", size=0.3) +
+  annotate('text', x = 51.5, y = 72.5,label= 'Records for keyword analysis\n(n = 1195)', size=2.8, hjust  = 0)
+```
+
+```{r}
+# downstream left (publication and country)
+s1 <- s1 +
+ geom_segment(x = 5, xend = 5, y = 87.5, yend = 75.5, size=0.3, linejoin = "mitre", lineend = "butt",
+    arrow = arrow(length = unit(1, "mm"), type= "closed"))+
+   geom_rect(xmin = 0, xmax = 40, ymin=  70, ymax = 75, color='black', fill = "white", size=0.3) +
+  annotate('text', x = 1.5, y = 72.5,label= 'Records for publication and\ncountry analysis (n = 1469)', size=2.8, hjust  = 0, vjust = 0.5)
+```
+
+```{r}
+# last component on the left (country co-occurence network)
+s1 <- s1 +
+ geom_segment(x = 5, xend = 5, y = 70, yend = 58, size=0.3, linejoin = "mitre", lineend = "butt",
+    arrow = arrow(length = unit(1, "mm"), type= "closed"))+
+  geom_segment(x = 5, xend = 9.5, y = (60+67.5)/2, yend = (60+67.5)/2, size=0.3, linejoin = "mitre", lineend = "butt",
+    arrow = arrow(length = unit(1, "mm"), type= "closed"))+
+   geom_rect(xmin = 10, xmax = 50, ymin=  60, ymax = 67.5, color='black', fill = "white", size=0.3) +
+  annotate('text', x = 11.5, y = (60+67.5)/2,label= 'Records excluded (n = 1141):\n   Produced by a single country\n   (n = 1141)', size=2.8, hjust  = 0, vjust = 0.5)+
+ geom_rect(xmin = 0, xmax = 40, ymin=  50, ymax = 57.5, color='black', fill = "white", size=0.3) +
+  annotate('text', x = 1.5, y = (50+57.5)/2,label= 'Records for country\nco-occurrence network analysis\n(n = 328)', size=2.8, hjust  = 0)
+```
+
+```{r}
+s1 <- s1 +
+  scale_x_continuous(expand = c(0, 0), limits = c(-2, 152)) + 
+  scale_y_continuous(expand = c(0, 0), limits = c(48, 152))+
+  theme_void()+
+  labs(caption = "<span style = 'font-family:sans'><b>Fig. S1</b></span> Flow chart of selection process for MAFLD literature")+
+  theme(plot.caption = element_markdown(family = "serif", size = 10, hjust = 0),
+        plot.caption.position =  "panel",
+        plot.margin = margin(c(23, 23, 64, 23), unit = "mm"))
+```
+
+```{r}
+ggsave("figure/FigS1.pdf", s1, width = 210, height = 297, units = "mm")
+```
+
+```{r}
+save.image("rdata/10_flow_chart_mafld.RData")
+```

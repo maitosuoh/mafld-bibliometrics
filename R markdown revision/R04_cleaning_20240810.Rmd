@@ -1,0 +1,2000 @@
+---
+title: "MAFLD"
+output: html_document
+date: "2024-06-17"
+---
+
+```{r}
+library(bibliometrix)
+library(tidyverse)
+library(openxlsx)
+```
+
+
+```{r}
+rds_name_format <- list.files("rds_nafld/", pattern= "_format")
+rds_name_format
+```
+
+```{r}
+rds_path_format <- paste0("rds_nafld/", rds_name_format)
+rds_path_format
+```
+
+```{r}
+df_name <- rds_name_format %>% str_extract("[^_]+(?=_)")
+df_name
+```
+
+
+```{r}
+# use map to read all RDS
+rds_map <- map(rds_path_format, readRDS)
+```
+
+```{r}
+length(rds_map)
+```
+
+```{r}
+# create data frame for each data base
+for (i in 1:length(rds_map)){
+  assign(df_name[i], rds_map[[i]])
+ 
+}
+```
+
+```{r}
+nrow(pubmed)
+nrow(wos)
+nrow(scopus)
+```
+
+```{r}
+# create NAFLD/NASH query
+# filter papers with exact match
+nafld <- c("NAFLD",
+           "NON-ALCOHOLIC FATTY LIVER DISEASE",
+           "NON ALCOHOLIC FATTY LIVER DISEASE",
+           "NONALCOHOLIC FATTY LIVER DISEASE",
+           "NON-ALCOHOLIC STEATOHEPATITIS",
+           "NON ALCOHOLIC STEATOHEPATITIS",
+           "NONALCOHOLIC STEATOHEPATITIS")
+
+nafld_search <- paste(nafld, collapse = "|")
+```
+
+```{r}
+# number of records in pubmed
+pubmed %>% nrow()
+#  19013
+```
+
+```{r}
+# pubmed is collected in batches -> remove duplicates 
+
+# NA in PM
+pubmed %>% filter(is.na(PM)) %>% nrow()
+
+# check duplicates based on PMID
+pubmed %>% group_by(PM) %>% filter(n()>1) %>% nrow()
+
+# NA in DI
+pubmed %>% filter(is.na(DI)) %>% nrow()
+
+# DI duplicates
+pubmed %>% filter(!is.na(DI)) %>% group_by(DI) %>% filter(n()>1) %>% nrow()
+```
+
+```{r}
+# remove PMID duplicates first
+nrow(pubmed)
+#19013
+
+pubmed <- pubmed %>% distinct(PM, .keep_all = TRUE)
+
+nrow(pubmed)
+# 18150
+```
+
+```{r}
+# duplicates removed here
+print(19013 - 18150)
+# 863 removed
+```
+
+```{r}
+# check DI duplicates
+
+pubmed %>% filter(!is.na(DI)) %>% group_by(DI) %>% filter(n()>1)
+
+pubmed %>% filter(DI == "10.1056/nejmc1716786") %>% nrow()
+# NEJM 5 papers
+# same DI and TI, different PM -> need conderation when assigning UI
+```
+
+```{r}
+# start from pubmed selection and cleaning
+# keep publications only with NAFLD term
+# 18150
+nrow(pubmed)
+
+pubmed_nafld <- pubmed %>%
+  filter(str_detect(TI, nafld_search) |
+         str_detect(AB, nafld_search))
+nrow(pubmed_nafld)
+# 16130 remained
+#  removed
+```
+
+```{r}
+print(18150 - 16133)
+```
+
+
+```{r}
+# check published year
+pubmed_nafld %>% count(PY)
+```
+
+```{r}
+# filter PY between 2015-2020 (filter 2016-2019 after merge)
+nrow(pubmed_nafld)
+
+pubmed_nafld <- pubmed_nafld %>% filter(PY >= 2015 & PY <= 2020)
+
+nrow(pubmed_nafld)
+# 15467 remained
+```
+
+```{r}
+# calculate n removed by PY
+print(16133 - 15470 )
+#666
+```
+
+```{r}
+pubmed_nafld  %>% count(LA)
+```
+
+```{r}
+# only keep ENG
+nrow(pubmed_nafld)
+
+pubmed_nafld <- pubmed_nafld %>% filter(LA == "ENG")
+nrow(pubmed_nafld)
+# 14963
+```
+
+```{r}
+print(15470 - 14964)
+```
+
+```{r}
+# publication type
+
+pubmed_nafld %>% count(DT)
+```
+
+```{r}
+pubmed_nafld %>% filter(str_detect(DT, "PATIENT EDUCATION HANDOUT")) %>% select(TI, PM, DI, DT) %>% View()
+```
+
+
+```{r}
+pubmed_nafld %>% filter(str_detect(DT, "CONGRESS")) %>% select(TI, PM, DI, DT) %>% View()
+```
+
+
+```{r}
+# check ineligible publication types
+# Try to keep consistent with exclusion in MAFLD papers
+# contains small number of miscellaneous publication types
+
+nrow(pubmed_nafld)
+
+pubmed_nafld <- pubmed_nafld %>%
+  filter(!str_detect(DT, "PREPRINT") &
+         !str_detect(DT, "ERRATUM") &
+         !str_detect(DT, "RETRACTION") &
+         !str_detect(DT, "BOOK"))
+
+nrow(pubmed_nafld)
+```
+
+
+```{r}
+pubmed_nafld %>% filter(str_detect(TI, "^CORRECTION")) %>% View()
+pubmed_nafld %>% filter(str_detect(TI, "^\\[CORRECTION")) %>% View()
+```
+
+```{r}
+pubmed_nafld %>% filter(str_detect(TI, "^RETRACTION")) %>% View()
+```
+
+```{r}
+pubmed_nafld %>% filter(str_detect(TI, "^\\[RETRACTION")) %>% View()
+
+```
+
+```{r}
+pubmed_nafld %>% filter(str_detect(TI, "^ERRATUM")) %>% nrow()
+pubmed_nafld %>% filter(str_detect(TI, "^\\[ERRATUM")) %>% nrow()
+```
+```{r}
+nrow(pubmed_nafld)
+
+pubmed_nafld <- pubmed_nafld %>% filter(!str_detect(TI, "^RETRACTION"))
+
+nrow(pubmed_nafld)
+```
+```{r}
+# abstract duplicates
+pubmed_nafld %>% filter(!is.na(AB)) %>% group_by(AB) %>% filter(n()>1) %>% select(TI, PM,DI, AB)
+
+# "N/A." or ""
+```
+
+```{r}
+# clean these abstracts, change to NA
+pubmed_nafld <- pubmed_nafld %>%
+  mutate(AB = case_when(PM %in% c("28475150",
+                                  "28471394",
+                                  "31517316",
+                                  "31204398",
+                                  "30769360") ~ NA,
+                        .default = as.character(AB)))
+```
+
+
+```{r}
+print(14964 - 14871)
+#  93
+```
+# web of science
+```{r}
+# check duplicated entry in wos (should be zero)
+
+nrow(wos)
+#22893
+
+wos %>% filter(is.na(UT)) %>% nrow()
+
+wos %>% group_by(UT) %>% filter(n()>1) %>% nrow()
+# zero
+```
+
+```{r}
+# wos nafld term
+nrow(wos)
+
+wos_nafld <- wos %>%
+  filter(str_detect(TI, nafld_search) |
+         str_detect(AB, nafld_search))
+
+nrow(wos_nafld)
+# 20548
+# 
+```
+
+```{r}
+print(22893 - 20569)
+# 2324
+```
+
+```{r}
+# wos PY
+wos_nafld %>% count(PY)
+```
+
+```{r}
+nrow(wos_nafld)
+wos_nafld  <- wos_nafld %>% filter(PY >= 2015 & PY <= 2020)
+nrow(wos_nafld)
+# 20288
+```
+
+```{r}
+print(20569 - 20309)
+# 260
+```
+
+```{r}
+wos_nafld %>% count(LA)
+```
+
+```{r}
+nrow(wos_nafld)
+
+wos_nafld <- wos_nafld %>% mutate(LA = case_when(LA == "ENGLISH" ~ "ENG",
+                                    .default = as.character(LA))) %>%
+  filter(LA == "ENG")
+
+nrow(wos_nafld)
+# 19984
+```
+```{r}
+print(20309 - 20005)
+```
+
+
+```{r}
+# publication type
+# wos DT type selected during export, 
+wos_nafld %>% count(DT)
+```
+
+```{r}
+# these likely to be jorunal articles, do not remove
+ wos_nafld %>% filter(str_detect(DT, "PROCEEDINGS")) %>% View()
+```
+
+```{r}
+# article book chapter
+wos_nafld %>% filter(str_detect(DT, "REVIEW; BOOK CHAPTER")) %>% View()
+```
+
+
+```{r}
+# remove based on publication type
+# keep others containing article, editorial/letter, review
+
+nrow(wos_nafld)
+
+wos_nafld <- wos_nafld %>%
+  filter(!DT%in% c("BOOK",
+                   "CORRECTION",
+                   "MEETING ABSTRACT",
+                   "PROCEEDINGS PAPER")) %>%
+  filter(!str_detect(DT, "RETRACT"))
+
+nrow(wos_nafld)
+# 14885
+```
+
+```{r}
+wos_nafld %>% filter(str_detect(TI, "^CORRECTION")) %>% nrow()
+wos_nafld %>% filter(str_detect(TI, "^\\(CORRECTION")) %>% nrow()
+wos_nafld %>% filter(str_detect(TI, "^\\[CORRECTION")) %>% nrow()
+wos_nafld %>% filter(str_detect(TI, "^ERRAT")) %>% nrow()
+wos_nafld %>% filter(str_detect(TI, "^\\(ERRAT")) %>% nrow()
+wos_nafld %>% filter(str_detect(TI, "^\\[ERRAT")) %>% nrow()
+wos_nafld %>% filter(str_detect(TI, "^RETRACT")) %>% nrow()
+wos_nafld %>% filter(str_detect(TI, "^\\(RETRACT")) %>% nrow()
+wos_nafld %>% filter(str_detect(TI, "^\\[RETRACT")) %>% nrow()
+```
+```{r}
+wos_nafld %>% filter(str_detect(TI, "^CORRECTION")) %>% View()
+```
+
+```{r}
+# remove WOS
+nrow(wos_nafld)
+wos_nafld <- wos_nafld %>% filter(!str_detect(TI, "^CORRECTION")) 
+nrow(wos_nafld)
+```
+```{r}
+print(20005 - 14881)
+```
+
+
+```{r}
+wos_nafld %>% filter(str_detect(TI, "^RETRACT")) %>% View()
+```
+
+
+```{r}
+wos_nafld %>% filter(str_detect(DT, "BOOK")) %>% View()
+```
+
+
+```{r}
+print(  19984 - 14885)
+#5099
+```
+
+
+```{r}
+# check NA in wos
+wos_nafld %>% filter(is.na(DI)) %>% nrow()
+
+wos_nafld %>% filter(is.na(PM)) %>% nrow()
+
+wos_nafld %>% filter(is.na(DI) & is.na(PM)) %>% nrow()
+
+# 451
+# 797
+# 223
+```
+
+```{r}
+# DI duplicates
+wos_nafld %>% filter(!is.na(DI)) %>% group_by(DI) %>% filter(n()>1) %>% nrow()
+
+# check duplicates based on PMID
+wos_nafld %>% filter(!is.na(PM)) %>% group_by(PM) %>% filter(n()>1) %>% nrow()
+```
+
+```{r}
+wos_nafld %>% filter(!is.na(AB)) %>% group_by(AB) %>% filter(n()>1) %>% select(TI, DE, DI, PM, UT)
+```
+
+```{r}
+# remove 	WOS:000346686800009 
+# abstract duplicate and wrong index not related to NAFLD
+
+nrow(wos_nafld)
+
+wos_nafld <- wos_nafld %>% filter(UT != "WOS:000346686800009")
+
+nrow(wos_nafld)
+```
+
+```{r}
+print(20005 - 14880)
+```
+
+```{r}
+# remove white spaces from AB and check duplicates
+wos_nafld %>% filter(!is.na(AB)) %>% 
+  mutate(AB = str_remove_all(AB, "\\s")) %>%
+  group_by(AB) %>% filter(n()>1) %>% View()
+
+# 10.19193/0393-6384_2017_6_150 and 10.19193/0393-6384_2017_4_106 seems to have the same content but both indexed in journal...
+
+# only remove
+#WOS:000396176100064
+```
+
+```{r}
+# remove 	WOS:000346686800009 
+# abstract duplicate and wrong index not related to NAFLD
+
+nrow(wos_nafld)
+
+wos_nafld <- wos_nafld %>% filter(UT != "WOS:000396176100064")
+
+nrow(wos_nafld)
+```
+
+
+```{r}
+# title dups
+
+wos_nafld %>% group_by(TI) %>% filter(n()>1) %>% select( PM, DI, TI, AU, AB, SO) %>% View()
+```
+
+
+
+```{r}
+# title author dups
+wos_nafld %>% group_by(TI, AU) %>% filter(n()>1) %>% select( PM, DI, TI, AU, AB, SO, DE, CR, TC, UT) %>% View()
+```
+
+
+```{r}
+# fill DI and PM in WOS:000459872000012 30819364 10.1016/j.jacc.2018.11.050
+wos_nafld <- wos_nafld %>% 
+  mutate(PM = case_when(UT == "WOS:000459872000012" ~ "30819364",
+                        .default = as.character(PM))) %>%
+  mutate(DI = case_when(UT == "WOS:000459872000012" ~ "10.1016/j.jacc.2018.11.050",
+                        .default = as.character(DI)))
+```
+
+```{r}
+wos_nafld %>% filter(!is.na(DI)) %>% group_by(DI) %>% filter(n()>1) %>% select( PM, DI, TI, AU, AB, SO, DE, CR, TC, UT)
+
+wos_nafld %>% filter(!is.na(PM)) %>% group_by(PM) %>% filter(n()>1) %>% select( PM, DI, TI, AU, AB, SO, DE, CR, TC, UT)
+```
+
+```{r}
+# WOS:000459872000012 extract necessary information
+wos_jacc_dup <- wos_nafld %>% filter(UT == "WOS:000459872000012") %>% select(DI, AB, DE, CR)
+```
+
+```{r}
+# row update based on DI
+wos_nafld <- wos_nafld %>% rows_update(wos_jacc_dup, by = "DI")
+```
+
+
+```{r}
+wos_nafld %>% filter(!is.na(DI)) %>% group_by(DI) %>% filter(n()>1) %>% select( PM, DI, TI, AU, AB, SO, DE, CR, TC, UT)
+
+wos_nafld %>% filter(!is.na(PM)) %>% group_by(PM) %>% filter(n()>1) %>% select( PM, DI, TI, AU, AB, SO, DE, CR, TC, UT)
+```
+
+```{r}
+# remove WOS:000459872000012
+
+nrow(wos_nafld)
+
+wos_nafld <- wos_nafld %>% filter(UT != "WOS:000459872000012")
+
+nrow(wos_nafld)
+```
+```{r}
+wos_nafld %>% group_by(TI, AU) %>% filter(n()>1) %>% View()
+```
+
+
+```{r}
+# check scopus
+
+nrow(scopus)
+# 19681
+
+scopus %>% filter(is.na(UT)) %>% nrow()
+
+scopus %>% group_by(UT) %>% filter(n()>1) %>% nrow()
+# no duplicates
+```
+
+```{r}
+# check NA in wos
+scopus %>% filter(is.na(DI)) %>% nrow()
+
+scopus %>% filter(is.na(PM)) %>% nrow()
+
+scopus %>% filter(is.na(DI) & is.na(PM)) %>% nrow()
+# 900
+# 4950
+# 492
+```
+
+```{r}
+# start scopus
+# scopus nafld term
+
+nrow(scopus)
+
+scopus_nafld <- scopus %>%
+  filter(str_detect(TI, nafld_search) |
+         str_detect(AB, nafld_search))
+nrow(scopus_nafld)
+# 17171
+```
+
+```{r}
+print(19681 - 17171)
+#2510
+```
+
+```{r}
+# wos PY
+scopus_nafld %>% count(PY)
+# all within range -> no filter
+```
+
+```{r}
+nrow(scopus_nafld)
+
+scopus_nafld  <- scopus_nafld %>% filter(PY >= 2015 & PY <= 2020)
+
+nrow(scopus_nafld)
+#  17164
+```
+
+```{r}
+# check language
+scopus_nafld %>% count(LA)
+```
+
+```{r}
+nrow(scopus_nafld)
+
+scopus_nafld <- scopus_nafld %>% filter(LA == "ENGLISH") %>%
+  mutate(LA = "ENG")
+
+nrow(scopus_nafld)
+
+#  15935
+```
+
+```{r}
+print( 17171 -  15939)
+#1229
+```
+
+```{r}
+# check publication type
+scopus_nafld %>% count(DT)
+```
+
+
+```{r}
+scopus_nafld %>% filter(str_detect(DT, "BOOK")) %>% View()
+```
+
+
+```{r}
+nrow(scopus_nafld)
+
+scopus_nafld <- scopus_nafld %>% filter(!str_detect(DT, "BOOK") &
+                          !str_detect(DT, "CONFERENCE") &
+                          !str_detect(DT, "ERRATUM") &
+                          !str_detect(DT, "RETRACTED"))
+nrow(scopus_nafld)
+```
+
+```{r}
+scopus_nafld %>% filter(str_detect(TI, "^CORRECTION")) %>% nrow()
+scopus_nafld %>% filter(str_detect(TI, "^\\(CORRECTION")) %>% nrow()
+scopus_nafld %>% filter(str_detect(TI, "^\\[CORRECTION")) %>% nrow()
+scopus_nafld %>% filter(str_detect(TI, "^ERRAT")) %>% nrow()
+scopus_nafld %>% filter(str_detect(TI, "^\\(ERRAT")) %>% nrow()
+scopus_nafld %>% filter(str_detect(TI, "^\\[ERRAT")) %>% nrow()
+scopus_nafld %>% filter(str_detect(TI, "^RETRACT")) %>% nrow()
+scopus_nafld %>% filter(str_detect(TI, "^\\(RETRACT")) %>% nrow()
+scopus_nafld %>% filter(str_detect(TI, "^\\[RETRACT")) %>% nrow()
+```
+```{r}
+scopus_nafld %>% filter(str_detect(TI, "^CORRECTION")) %>% View()
+# not Erratum
+```
+
+
+```{r}
+print(15939-  15261)
+```
+
+
+```{r}
+scopus_nafld %>% filter(!is.na(DI)) %>% group_by(DI) %>% filter(n()>1) %>% nrow()
+
+scopus_nafld %>% filter(!is.na(PM)) %>% group_by(PM) %>% filter(n()>1) %>% nrow()
+
+# 20
+# 14
+```
+
+```{r}
+# check abstract duplicates
+scopus_nafld %>% filter(!is.na(AB)) %>% group_by(AB) %>% filter(n()>1) %>% nrow()
+```
+
+```{r}
+scopus_nafld %>% filter(AB == "[NO ABSTRACT AVAILABLE]") %>% nrow()
+```
+```{r}
+# change no abstract available to NA
+scopus_nafld <- scopus_nafld %>%
+  mutate(AB = case_when(AB == "[NO ABSTRACT AVAILABLE]" ~ NA,
+                        .default = as.character(AB)))
+```
+
+```{r}
+# check abstract duplicates again
+scopus_nafld %>% filter(!is.na(AB)) %>% group_by(AB) %>% filter(n()>1) %>% nrow()
+scopus_nafld %>% filter(!is.na(AB)) %>% group_by(AB) %>% filter(n()>1) %>% View()
+```
+```{r}
+# abstract duplicates
+# remove 2-S2.0-85044101596 complete duplicate
+# remove 2-S2.0-84994164366 wrong index
+
+nrow(scopus_nafld)
+
+scopus_nafld <- scopus_nafld %>% filter(!UT  %in% c("2-S2.0-85044101596",
+                                                    "2-S2.0-84994164366"))
+  
+nrow(scopus_nafld)
+```
+
+
+```{r}
+# manually check duplicates
+scopus_nafld %>% filter(!is.na(PM)) %>% group_by(PM) %>% filter(n()>1) %>% View()
+```
+
+```{r}
+scopus_nafld %>% group_by(AU, TI) %>% filter(n()>1) %>% View()
+```
+
+```{r}
+scopus%>% filter(DI == "10.24875/aidsrev.m17000012") %>% select(TI, PM, DI, DE)
+
+scopus %>% filter(PM == "29369303") %>% select(TI, PM, DI, DE)
+
+scopus %>% filter(DI == "10.2174/2212798407666150629123839") %>% select(TI, PM, DI, UT)
+
+scopus %>% filter(PM == "26118770") %>% select(TI, PM, DI, UT)
+
+# 10.24875/aidsrev.m17000012 PM NA
+# 10.2174/2212798407666150629123839 DI NA
+# 29369303 PM NA
+# 26118770 DI NA
+
+#REPORT FROM THE INTERNATIONAL CONFERENCE ON VIRAL HEPATITIS - 2017	duplicated
+#SOYBEAN AND PROCESSED SOY FOODS INGREDIENTS, AND THEIR ROLE IN CARDIOMETABOLIC RISK PREVENTION duplicated
+```
+
+```{r}
+scopus_nafld %>% group_by(DI) %>% filter(n()>1) %>% select(TI, DI, PM, UT, DT, DE)
+```
+
+```{r}
+scopus_nafld <- scopus_nafld %>%
+  mutate(DI = case_when(UT == "2-S2.0-85055078683" ~ "10.24875/aidsrev.m17000012",
+                        .default = as.character(DI))) %>%
+  mutate(DE = case_when(UT == "2-S2.0-85055078683" ~ scopus_nafld %>% filter(UT == "2-S2.0-85045509196") %>% pull(DE),
+                        .default = as.character(DE)))
+```
+
+```{r}
+scopus_nafld %>%  filter(DI == "10.24875/aidsrev.m17000012") %>% select(TI, DI, PM, UT, DT, DE)
+```
+
+```{r}
+scopus_nafld <- scopus_nafld %>%
+  mutate(DT = case_when(UT == "2-S2.0-85045509196" ~ "REVIEW",
+                        .default = as.character(DT)))
+```
+
+
+```{r}
+scopus_nafld %>%  filter(DI == "10.24875/aidsrev.m17000012") %>% select(TI, DI, PM, UT, DT, DE)
+```
+
+
+```{r}
+# 2-S2.0-84945251919
+# 2-S2.0-84945306512
+
+scopus_nafld %>% filter(UT %in% c("2-S2.0-84945251919", "2-S2.0-84945306512")) %>% select(TI, DI, PM, UT, DT, DE)
+
+```
+
+```{r}
+scopus_nafld <- scopus_nafld %>%
+  mutate(DT = case_when(UT == "2-S2.0-84945251919" ~ "REVIEW",
+                        .default = as.character(DT))) %>%
+  mutate(PM = case_when(UT == "2-S2.0-84945251919" ~ "26118770",
+                        .default = as.character(PM)))
+```
+
+```{r}
+# 2-S2.0-84945251919
+# 2-S2.0-84945306512
+
+scopus_nafld %>% filter(UT %in% c("2-S2.0-84945251919", "2-S2.0-84945306512")) %>% select(TI, DI, PM, UT, DT, DE)
+
+```
+
+
+```{r}
+### scopus remove
+# remove 2-S2.0-85045509196
+# remove 	2-S2.0-84945306512
+nrow(scopus_nafld)
+
+scopus_nafld <- scopus_nafld %>% filter(!UT %in% c("2-S2.0-85045509196",
+                                                         "2-S2.0-84945306512"))
+nrow(scopus_nafld)
+```
+
+```{r}
+# duplicates processing; these are different but same DI in pubmed
+pubmed_nafld %>% filter(!is.na(DI)) %>% group_by(DI) %>% filter(n()>1) %>% View()
+```
+
+```{r}
+pubmed_dup_nejm <- pubmed_nafld %>% filter(!is.na(DI)) %>% group_by(DI) %>% filter(n()>1) %>% select(AU, TI, DI, PM)
+pubmed_dup_nejm
+```
+
+```{r}
+wos_nafld %>% filter(DI %in% pubmed_dup_nejm$DI) %>% nrow()
+# wos has PM
+
+wos_nafld %>% filter(PM %in% pubmed_dup_nejm$PM) %>% nrow()
+```
+```{r}
+wos_nafld %>% filter(PM %in% pubmed_dup_nejm$PM) %>% nrow()
+```
+
+```{r}
+wos_nafld %>% filter(is.na(DI)) %>% nrow()
+```
+
+
+```{r}
+wos_nafld <- wos_nafld %>% mutate(DI = case_when(PM %in% pubmed_dup_nejm$PM ~  "10.1056/nejmc1716786",
+                                   .default = as.character(DI)))
+```
+
+```{r}
+wos_nafld %>% filter(is.na(DI)) %>% nrow()
+```
+
+
+```{r}
+# check nejm dups in wos and scopus
+
+scopus_nafld %>% filter(DI %in% pubmed_dup_nejm$DI) %>% nrow()
+
+scopus_nafld %>% filter(PM %in% pubmed_dup_nejm$PM) %>% View()
+
+```
+
+```{r}
+# correct needs consideration 29470010	WOS:000425613900028
+wos_nafld %>% filter(DI %in% pubmed_dup_nejm$DI) %>% select(AU, TI, DI, PM, UT) 
+```
+
+```{r}
+wos_nafld %>% filter(DI == "10.1056/nejmc1716786") %>% select(AU, TI, DI, PM, UT) 
+```
+
+
+```{r}
+# create UI and assign PM for this
+
+wos_nafld <- wos_nafld %>% 
+  mutate(UI = case_when(PM %in% pubmed_dup_nejm$PM ~ PM,
+                        .default = as.character(DI)))
+```
+
+
+```{r}
+scopus_nafld %>% filter(DI %in% pubmed_dup_nejm$DI) %>% select(AU, DI, PM, UT)
+```
+
+```{r}
+scopus_nafld %>% filter(PM %in% pubmed_dup_nejm$PM) %>% select(AU, DI, PM, UT)
+```
+
+```{r}
+# fill DI in sachak et al
+scopus_nafld <- scopus_nafld %>% mutate(DI = case_when(UT == "2-S2.0-85042463575" ~ "10.1056/nejmc1716786",
+                                      .default = as.character(DI)))
+```
+
+```{r}
+# check for update
+scopus_nafld %>% filter(PM %in% pubmed_dup_nejm$PM) %>% select(AU, DI, PM, UT)
+```
+
+
+```{r}
+# create UI column in pubmed wos and scopus
+# copy DI and replace NEJM duplicates by PMID
+
+pubmed_nafld <- pubmed_nafld %>% 
+  mutate(UI = case_when(DI == "10.1056/nejmc1716786" ~ PM,
+                        .default = as.character(DI)))
+
+
+scopus_nafld <- scopus_nafld %>%
+  mutate(UI = case_when(DI == "10.1056/nejmc1716786" ~ PM,
+                        .default = as.character(DI)))
+```
+
+
+```{r}
+# check for updates
+pubmed_nafld %>% filter(DI %in% pubmed_dup_nejm$DI) %>% select(AU, DI, PM, UI)
+
+scopus_nafld %>% filter(DI %in% pubmed_dup_nejm$DI) %>% select(AU, DI, PM, UI)
+```
+
+```{r}
+scopus_nafld %>% filter(!is.na(UI)) %>% group_by(UI) %>% filter(n()>1) %>% nrow()
+```
+
+```{r}
+scopus_nafld %>% filter(!is.na(PM)) %>% group_by(PM) %>% filter(n()>1) %>% nrow()
+```
+
+```{r}
+# UI duplicates
+scopus_nafld %>% filter(!is.na(UI)) %>% group_by(UI) %>% filter(n()>1) %>% arrange(UI) %>%
+  relocate(UI, .before = AU) %>%
+  relocate(PM, .after = UI) %>%
+  relocate(DI, .after = PM) %>%
+  relocate(UT, .after = DI) %>%
+  relocate(TI, .after = UT) %>%
+  relocate(J9, .after = TI) %>%
+  relocate(DE, .after = J9) %>%
+  write.xlsx("scopus_nafld_dup_ui_20240724.xlsx", colNames = TRUE, rowNames = FALSE)
+```
+
+```{r}
+#manually fix scopus_nafld UI duplicates
+# "2-S2.0-85062359238" 
+# change PM to 31011302, DI and UI NA
+
+scopus_nafld <- scopus_nafld %>%
+  mutate(PM = case_when(UT == "2-S2.0-85062359238" ~ "31011302",
+                        .default = as.character(PM))) %>%
+  mutate(DI = case_when(UT == "2-S2.0-85062359238" ~  NA,
+                        .default = as.character(DI))) %>%
+  mutate(UI = case_when(UT == "2-S2.0-85062359238" ~  NA,
+                        .default = as.character(UI)))
+```
+
+
+```{r}
+
+scopus_nafld %>% filter(DI == "10.1016/j.jhep.2014.08.040")
+scopus_nafld %>% filter(PM == "25195551")
+
+scopus_nafld %>% filter(UI == "10.1159/000441810")
+
+scopus_nafld %>% filter(UI == "10.1016/j.clnu.2013.08.014")
+```
+
+
+```{r}
+# remove 2-S2.0-85086346723
+# remove 2-S2.0-85029770937
+# remove 2-S2.0-85134072310
+# remove 2-S2.0-85055168129
+# remove 2-S2.0-84959297269
+# remove 2-S2.0-84959286900
+# remove 2-S2.0-84994164366 # already removed
+# remove 2-S2.0-85007472400
+
+scopus_nafld <- scopus_nafld %>% filter(!UT %in% c("2-S2.0-85086346723",
+                                                   "2-S2.0-85029770937",
+                                                   "2-S2.0-85134072310",
+                                                   "2-S2.0-85055168129",
+                                                   "2-S2.0-84959297269",
+                                                   "2-S2.0-84959286900",
+                                                   "2-S2.0-85007472400"))
+
+# 7 removed
+```
+
+```{r}
+# "2-S2.0-85029016169" change PM to 27322943
+# remove "2-S2.0-85040121915"
+
+scopus_nafld <- scopus_nafld %>%
+  mutate(PM = case_when(UT == "2-S2.0-85029016169" ~ "27322943",
+                        .default = as.character(PM))) %>%
+  filter(UT != "2-S2.0-85040121915")
+```
+
+
+```{r}
+scopus_nafld %>% filter(!is.na(UI)) %>% group_by(UI) %>% filter(n()>1) %>% nrow()
+# 0
+```
+
+
+```{r}
+# PM duplicates
+scopus_nafld %>% filter(!is.na(PM)) %>% group_by(PM) %>% filter(n()>1) %>% arrange(PM) %>%
+   relocate(UI, .before = AU) %>%
+  relocate(PM, .after = UI) %>%
+  relocate(DI, .after = PM) %>%
+  relocate(UT, .after = DI) %>%
+  relocate(TI, .after = UT) %>%
+  relocate(J9, .after = TI) %>%
+  relocate(DE, .after = J9) %>%
+  write.xlsx("scopus_nafld_dup_pm_20240724.xlsx", colNames = TRUE, rowNames = FALSE)
+```
+
+```{r}
+scopus_nafld %>% filter(!is.na(PM)) %>% group_by(PM) %>% filter(n()>1) %>% nrow()
+```
+
+
+```{r}
+# manually fix scopus_nafld UI duplicates
+
+scopus_nafld <- scopus_nafld %>%
+  mutate(PM = case_when(UT == "2-S2.0-85087474612" ~ "32613782",
+                        .default = as.character(PM))) %>%
+  mutate(PM = case_when(UT == "2-S2.0-85062973404" ~ "30697898",
+                        .default = as.character(PM))) %>%
+  mutate(PM = case_when(UT == "2-S2.0-85139587695" ~ "31574021",
+                        .default = as.character(PM))) %>%
+  mutate(PM = case_when(UT == "2-S2.0-85067695087" ~ "31300231",
+                        .default = as.character(PM)))
+```
+
+
+```{r}
+nrow(scopus_nafld)
+```
+
+
+```{r}
+scopus_nafld %>% filter(!is.na(PM)) %>% group_by(PM) %>% filter(n()>1) %>% nrow()
+#0
+```
+
+```{r}
+scopus_nafld %>% filter(is.na(PM)) %>% nrow()
+scopus_nafld %>% filter(is.na(DI)) %>% nrow()
+scopus_nafld %>% filter(is.na(UI)) %>% nrow()
+```
+
+```{r}
+# correct mismatch between DOI and PMID between datasets (both not NA)
+pubmed_di_pm_ui <- pubmed_nafld %>% select(TI, DI, PM, UI) %>%
+  filter((!is.na(DI)) & (!is.na(PM)) & (!is.na(UI)))
+
+wos_di_pm_ui <- wos_nafld %>% select(TI, DI, PM, UI) %>% 
+  filter((!is.na(DI)) & (!is.na(PM) & (!is.na(UI))))
+
+scopus_di_pm_ui <- scopus_nafld %>% select(TI, DI, PM, UI) %>%
+  filter((!is.na(DI)) & (!is.na(PM)) & (!is.na(UI)))
+```
+
+```{r}
+# same DI but different PM between pubmed and wos
+pubmed_di_pm_ui %>% 
+  inner_join(wos_di_pm_ui, by = join_by("UI"), suffix = c("_p", "_w")) %>%
+  filter(!str_equal(PM_p, PM_w) ) %>% View()
+```
+
+###
+```{r}
+# WOS:000526100900003
+# change DI in wos to 10.1016/S2468-1253(20)30091-1
+
+wos_nafld <- wos_nafld %>%
+  mutate(UI = case_when(UT == "WOS:000526100900003" ~ "10.1016/s2468-1253(20)30091-1",
+                        .default = as.character(UI)))
+
+```
+
+```{r}
+# correct mismatch between DOI and PMID between datasets (both not NA)
+pubmed_di_pm_ui <- pubmed_nafld %>% select(TI, DI, PM, UI) %>%
+  filter((!is.na(DI)) & (!is.na(PM)) & (!is.na(UI)))
+
+wos_di_pm_ui <- wos_nafld %>% select(TI, DI, PM, UI) %>% 
+  filter((!is.na(DI)) & (!is.na(PM) & (!is.na(UI))))
+
+scopus_di_pm_ui <- scopus_nafld %>% select(TI, DI, PM, UI) %>%
+  filter((!is.na(DI)) & (!is.na(PM)) & (!is.na(UI)))
+```
+
+```{r}
+# same DI but different PM between pubmed and wos
+pubmed_di_pm_ui %>% 
+  inner_join(wos_di_pm_ui, by = join_by("UI"), suffix = c("_p", "_w")) %>%
+  filter(!str_equal(PM_p, PM_w) ) %>% View()
+```
+
+```{r}
+# change wos PM based on pubmed DI, extract tibble for row update
+wos_ui2pm <- pubmed_di_pm_ui %>% 
+  inner_join(wos_di_pm_ui, by = join_by("UI"), suffix = c("_p", "_w")) %>%
+  filter(!str_equal(PM_p, PM_w)) %>%
+  select(UI, PM_p) %>%
+  rename(PM = PM_p)
+
+wos_ui2pm
+```
+
+```{r}
+# update wrong wos-DI based on PM
+wos_nafld <- wos_nafld %>% rows_update(wos_ui2pm, by = "UI") 
+```
+
+```{r}
+wos_nafld %>% filter(DI %in% wos_ui2pm$UI) %>% select(UI, PM)
+```
+
+
+```{r}
+# correct mismatch between DOI and PMID between datasets (both not NA)
+pubmed_di_pm_ui <- pubmed_nafld %>% select(TI, DI, PM, UI) %>%
+  filter((!is.na(DI)) & (!is.na(PM)) & (!is.na(UI)))
+
+wos_di_pm_ui <- wos_nafld %>% select(TI, DI, PM, UI) %>% 
+  filter((!is.na(DI)) & (!is.na(PM)) & (!is.na(UI)))
+
+scopus_di_pm_ui <- scopus_nafld %>% select(TI, DI, PM, UI) %>%
+  filter((!is.na(DI)) & (!is.na(PM)) & (!is.na(UI)))
+```
+
+
+```{r}
+# same PM but different DI between pubmed and wos
+pubmed_di_pm_ui %>% 
+  inner_join(wos_di_pm_ui, by = join_by("PM"), suffix = c("_p", "_w")) %>%
+  filter(!str_equal(UI_p, UI_w) ) %>% 
+  relocate(UI_w, .after = UI_p) %>% View()
+```
+
+```{r}
+# same DI but different PM between pubmed and wos
+# all same title, different expression
+pubmed_di_pm_ui %>% 
+  inner_join(wos_di_pm_ui, by = join_by("PM"), suffix = c("_p", "_w")) %>%
+  filter(!str_equal(UI_p, UI_w) & !str_equal(TI_p, TI_w)) %>% 
+  relocate(UI_w, .after = UI_p) %>% View()
+```
+
+```{r}
+# change wos PM based on pubmed DI, extract tibble for row update
+wos_pm2ui <- pubmed_di_pm_ui %>% 
+  inner_join(wos_di_pm_ui, by = join_by("PM"), suffix = c("_p", "_w")) %>%
+  filter(!str_equal(UI_p, UI_w)) %>%
+  select(UI_p, PM) %>%
+  rename(UI = UI_p)
+
+wos_pm2ui %>% arrange(PM)
+```
+
+```{r}
+# check before update
+wos_nafld %>% filter(PM %in% wos_pm2ui$PM) %>% select(UI, PM) %>% arrange(PM)
+```
+
+
+```{r}
+# update wrong wos-DI based on PM
+wos_nafld <- wos_nafld %>% rows_update(wos_pm2ui, by = "PM") 
+```
+
+
+```{r}
+# check update PMID
+wos_nafld %>% filter(PM %in% wos_pm2ui$PM) %>% select(PM, DI) %>% arrange(PM)
+```
+
+
+```{r}
+### scopus fix
+# same UI but different PM between pubmed and scopus
+pubmed_di_pm_ui %>% 
+  inner_join(scopus_di_pm_ui, by = join_by("UI"), suffix = c("_p", "_w")) %>%
+  filter(!str_equal(PM_p, PM_w) ) %>% View()
+```
+
+```{r}
+# change wos PM based on pubmed DI, extract tibble for row update
+scopus_ui2pm <- pubmed_di_pm_ui %>% 
+  inner_join(scopus_di_pm_ui, by = join_by("UI"), suffix = c("_p", "_s")) %>%
+  filter(!str_equal(PM_p, PM_s)) %>%
+  select(UI, PM_p) %>%
+  rename(PM = PM_p)
+
+scopus_ui2pm
+```
+
+```{r}
+scopus_nafld %>% filter(UI %in% scopus_ui2pm$UI) %>% select(UI, PM) %>% arrange(UI)
+```
+
+
+```{r}
+# update wrong wos-DI based on PM
+scopus_nafld <- scopus_nafld %>% rows_update(scopus_ui2pm, by = "UI") 
+```
+
+```{r}
+scopus_nafld  %>% filter(UI %in% scopus_ui2pm$UI) %>% select(UI, PM) %>% arrange(UI)
+```
+
+
+```{r}
+# correct mismatch between DOI and PMID between datasets (both not NA)
+pubmed_di_pm_ui <- pubmed_nafld %>% select(TI, DI, PM, UI) %>%
+  filter((!is.na(DI)) & (!is.na(PM)) & (!is.na(UI)))
+
+wos_di_pm_ui <- wos_nafld %>% select(TI, DI, PM, UI) %>% 
+  filter((!is.na(DI)) & (!is.na(PM)) & (!is.na(UI)))
+
+scopus_di_pm_ui <- scopus_nafld %>% select(TI, DI, PM, UI) %>%
+  filter((!is.na(DI)) & (!is.na(PM)) & (!is.na(UI)))
+```
+
+```{r}
+# same PM but different PM between pubmed and scopus
+pubmed_di_pm_ui %>% 
+  inner_join(scopus_di_pm_ui, by = join_by("PM"), suffix = c("_p", "_s")) %>%
+  filter(!str_equal(UI_p, UI_s) ) %>% 
+  relocate(UI_s, .after = UI_p) %>% View()
+```
+
+```{r}
+# same DI but different PM between pubmed and wos
+# all same title, different expression
+pubmed_di_pm_ui %>% 
+  inner_join(scopus_di_pm_ui, by = join_by("PM"), suffix = c("_p", "_s")) %>%
+  filter(!str_equal(UI_p, UI_s) & !str_equal(TI_p, TI_s)) %>% 
+  relocate(UI_s, .after = UI_p) %>% View()
+```
+
+```{r}
+# change wos PM based on pubmed DI, extract tibble for row update
+scopus_pm2ui <- pubmed_di_pm_ui %>% 
+  inner_join(scopus_di_pm_ui, by = join_by("PM"), suffix = c("_p", "_s")) %>%
+  filter(!str_equal(UI_p, UI_s)) %>%
+  select(UI_p, PM) %>%
+  rename(UI = UI_p)
+
+scopus_pm2ui %>% arrange(PM)
+```
+
+```{r}
+# check update PMID
+scopus_nafld %>% filter(PM %in% scopus_pm2ui$PM) %>% select(PM, UI) %>% arrange(PM)
+```
+
+
+```{r}
+# update wrong scopus UI based on PM
+scopus_nafld <- scopus_nafld %>% rows_update(scopus_pm2ui, by = "PM") 
+```
+
+
+```{r}
+# correct mismatch between DOI and PMID between datasets (both not NA)
+pubmed_di_pm_ui <- pubmed_nafld %>% select(TI, DI, PM, UI) %>%
+  filter((!is.na(DI)) & (!is.na(PM)) & (!is.na(UI)))
+
+wos_di_pm_ui <- wos_nafld %>% select(TI, DI, PM, UI) %>% 
+  filter((!is.na(DI)) & (!is.na(PM)) & (!is.na(UI)))
+
+scopus_di_pm_ui <- scopus_nafld %>% select(TI, DI, PM, UI) %>%
+  filter((!is.na(DI)) & (!is.na(PM)) & (!is.na(UI)))
+```
+
+```{r}
+# same PM but different PM between pubmed and scopus
+wos_di_pm_ui %>% 
+  inner_join(scopus_di_pm_ui, by = join_by("PM"), suffix = c("_w", "_s")) %>%
+  filter(!str_equal(UI_w, UI_s) ) %>% 
+  relocate(UI_s, .after = UI_p) %>% View()
+```
+
+```{r}
+# same DI but different PM between pubmed and wos
+# all same title, different expression
+pubmed_di_pm_ui %>% 
+  inner_join(scopus_di_pm_ui, by = join_by("PM"), suffix = c("_p", "_s")) %>%
+  filter(!str_equal(UI_p, UI_s) & !str_equal(TI_p, TI_s)) %>% 
+  relocate(UI_s, .after = UI_p) %>% View()
+```
+
+```{r}
+# change wos PM based on pubmed DI, extract tibble for row update
+scopus_pm2ui <- pubmed_di_pm_ui %>% 
+  inner_join(scopus_di_pm_ui, by = join_by("PM"), suffix = c("_p", "_s")) %>%
+  filter(!str_equal(UI_p, UI_s)) %>%
+  select(UI_p, PM) %>%
+  rename(UI = UI_p)
+
+scopus_pm2ui %>% arrange(PM)
+```
+
+```{r}
+# check update PMID
+scopus_nafld %>% filter(PM %in% scopus_pm2ui$PM) %>% select(PM, DI) %>% arrange(PM)
+```
+
+```{r}
+# update wrong scopus UI based on PM
+scopus_nafld <- scopus_nafld %>% rows_update(scopus_pm2ui, by = "PM") 
+```
+
+```{r}
+# check update PMID
+scopus_nafld %>% filter(PM %in% scopus_pm2ui$PM) %>% select(PM, DI) %>% arrange(PM)
+```
+
+```{r}
+# correct mismatch between DOI and PMID between datasets (both not NA)
+pubmed_di_pm_ui <- pubmed_nafld %>% select(TI, DI, PM, UI) %>%
+  filter((!is.na(DI)) & (!is.na(PM)) & (!is.na(UI)))
+
+wos_di_pm_ui <- wos_nafld %>% select(TI, DI, PM, UI) %>% 
+  filter((!is.na(DI)) & (!is.na(PM)) & (!is.na(UI)))
+
+scopus_di_pm_ui <- scopus_nafld %>% select(TI, DI, PM, UI) %>%
+  filter((!is.na(DI)) & (!is.na(PM)) & (!is.na(UI)))
+```
+
+```{r}
+# same PM but different PM between pubmed and scopus
+wos_di_pm_ui %>% 
+  inner_join(scopus_di_pm_ui, by = join_by("UI"), suffix = c("_w", "_s")) %>%
+  filter(!str_equal(PM_w, PM_s) ) %>% 
+  relocate(PM_s, .after = PM_w) %>% View()
+# zero
+```
+
+```{r}
+# same PM but different PM between pubmed and scopus
+wos_di_pm_ui %>% 
+  inner_join(scopus_di_pm_ui, by = join_by("PM"), suffix = c("_w", "_s")) %>%
+  filter(!str_equal(UI_w, UI_s) ) %>% 
+  relocate(UI_s, .after = UI_w) %>% View()
+
+```
+
+```{r}
+wos_di_pm_ui %>% 
+  inner_join(scopus_di_pm_ui, by = join_by("PM"), suffix = c("_w", "_s")) %>%
+  filter(!str_equal(UI_w, UI_s) ) %>% 
+  relocate(UI_s, .after = UI_w) %>% 
+  left_join(pubmed_di_pm_ui, by = join_by("PM"))%>% 
+  rename(UI_p = "UI") %>%
+  relocate(UI_p, .before = UI_w) %>%
+  relocate(UI_s, .after = UI_w) 
+
+```
+
+
+```{r}
+# same PM but different PM between pubmed and scopus
+pubmed_nafld %>% filter(PM %in% 
+                          (wos_di_pm_ui %>% 
+                             inner_join(scopus_di_pm_ui, by = join_by("PM"), suffix = c("_w", "_s")) %>%
+                             filter(!str_equal(UI_w, UI_s) ) %>% 
+                             pull(PM)))
+
+```
+
+
+```{r}
+# manually fix these
+# 33867326 	10.36721/pjps.2020.33.6.reg.2527-2533.1 wos correct
+# pubmed fill DI and UI with 10.36721/pjps.2020.33.6.reg.2527-2533.1
+# scopus replace UI with 10.36721/pjps.2020.33.6.reg.2527-2533.1
+
+pubmed_nafld %>% filter(PM == "33867326") %>% nrow()
+
+# scopus UI 10.36721/pjps.2020.33.6.reg.2535-2541.1
+scopus_nafld %>% filter(PM == "33867326") %>% nrow()
+scopus_nafld %>% filter(UI == "10.36721/pjps.2020.33.6.reg.2535-2541.1") %>% nrow()
+
+# all unique in each dataset
+```
+
+```{r}
+# fix pubmed manually; record exists but DI and UI missing
+pubmed_nafld <- pubmed_nafld %>%
+  mutate(DI = case_when(PM == "33867326" ~ "10.36721/pjps.2020.33.6.reg.2527-2533.1",
+                                   .default = as.character(DI))) %>%
+  mutate(UI = case_when(PM == "33867326" ~ "10.36721/pjps.2020.33.6.reg.2527-2533.1",
+                                   .default = as.character(UI)))
+```
+
+```{r}
+# fix scopus
+scopus_nafld <- scopus_nafld %>%
+  mutate(DI = case_when(PM == "33867326" ~ "10.36721/pjps.2020.33.6.reg.2527-2533.1",
+                                   .default = as.character(DI))) %>%
+  mutate(UI = case_when(PM == "33867326" ~ "10.36721/pjps.2020.33.6.reg.2527-2533.1",
+                                   .default = as.character(UI)))
+```
+
+```{r}
+# 27869416 excluded from pubmed because LA is ENG SPA
+# use pubmed's PMID 10.5546/aap.2016.eng.569 in wos and scopus
+# wos is Spanish
+
+pubmed_nafld %>% filter(PM == "27869416") %>% nrow()
+wos_nafld %>% filter(PM == "27869416") %>% nrow()
+scopus_nafld %>% filter(PM == "27869416") %>% nrow()
+#unique row
+```
+
+
+```{r}
+wos_nafld <- wos_nafld %>%
+  mutate(DI = case_when(PM == "27869416" ~ "10.5546/aap.2016.eng.569",
+                                   .default = as.character(DI))) %>%
+  mutate(UI = case_when(PM == "27869416" ~ "10.5546/aap.2016.eng.569",
+                                   .default = as.character(UI)))
+```
+
+```{r}
+# fix scopus
+
+scopus_nafld <- scopus_nafld %>%
+  mutate(DI = case_when(PM == "27869416" ~ "10.5546/aap.2016.eng.569",
+                                   .default = as.character(DI))) %>%
+  mutate(UI = case_when(PM == "27869416" ~ "10.5546/aap.2016.eng.569",
+                                   .default = as.character(UI)))
+```
+
+
+
+```{r}
+# correct mismatch between DOI and PMID between datasets (both not NA)
+pubmed_di_pm_ui <- pubmed_nafld %>% select(TI, DI, PM, UI) %>%
+  filter((!is.na(DI)) & (!is.na(PM)) & (!is.na(UI)))
+
+wos_di_pm_ui <- wos_nafld %>% select(TI, DI, PM, UI) %>% 
+  filter((!is.na(DI)) & (!is.na(PM)) & (!is.na(UI)))
+
+scopus_di_pm_ui <- scopus_nafld %>% select(TI, DI, PM, UI) %>%
+  filter((!is.na(DI)) & (!is.na(PM)) & (!is.na(UI)))
+```
+
+```{r}
+# same PM but different PM between pubmed and scopus
+wos_di_pm_ui %>% 
+  inner_join(scopus_di_pm_ui, by = join_by("PM"), suffix = c("_w", "_s")) %>%
+  filter(!str_equal(UI_w, UI_s) ) %>% 
+  relocate(UI_s, .after = UI_w) %>% View()
+# no data
+```
+
+```{r}
+# check duplicates and NA at this point; pubmed
+pubmed_nafld %>% filter(is.na(UI)) %>% nrow()
+pubmed_nafld %>% filter(is.na(DI)) %>% nrow()
+pubmed_nafld %>% filter(is.na(PM)) %>% nrow()
+
+pubmed_nafld %>% filter(is.na(DI) & is.na(PM)) %>% nrow()
+#0
+
+pubmed_nafld %>% filter(!is.na(UI)) %>% group_by(UI) %>% filter(n()>1) %>% nrow()
+pubmed_nafld %>% filter(!is.na(DI)) %>% group_by(DI) %>% filter(n()>1) %>% nrow()
+# 5 NEJM paper
+pubmed_nafld %>% filter(!is.na(PM)) %>% group_by(PM) %>% filter(n()>1) %>% nrow()
+```
+
+
+```{r}
+# check duplicates and NA at this point; wos
+wos_nafld %>% filter(is.na(UI)) %>% nrow()
+wos_nafld %>% filter(is.na(DI)) %>% nrow()
+wos_nafld %>% filter(is.na(PM)) %>% nrow()
+
+wos_nafld %>% filter(is.na(DI) & is.na(PM)) %>% nrow()
+#223
+
+wos_nafld %>% filter(!is.na(UI)) %>% group_by(UI) %>% filter(n()>1) %>% nrow()
+wos_nafld %>% filter(!is.na(DI)) %>% group_by(DI) %>% filter(n()>1) %>% nrow()
+wos_nafld %>% filter(!is.na(PM)) %>% group_by(PM) %>% filter(n()>1) %>% nrow()
+# no duplicates
+```
+
+```{r}
+# check duplicates and NA at this point; scopus
+scopus_nafld %>% filter(is.na(UI)) %>% nrow()
+scopus_nafld %>% filter(is.na(DI)) %>% nrow()
+scopus_nafld %>% filter(is.na(PM)) %>% nrow()
+
+scopus_nafld %>% filter(is.na(DI) & is.na(PM)) %>% nrow()
+# 282
+
+scopus_nafld %>% filter(!is.na(UI)) %>% group_by(UI) %>% filter(n()>1) %>% nrow()
+scopus_nafld %>% filter(!is.na(DI)) %>% group_by(DI) %>% filter(n()>1) %>% nrow()
+scopus_nafld %>% filter(!is.na(PM)) %>% group_by(PM) %>% filter(n()>1) %>% nrow()
+```
+```{r}
+scopus_nafld %>% filter(!is.na(DI)) %>% group_by(DI) %>% filter(n()>1) %>% View()
+# NEJM
+```
+
+```{r}
+scopus_nafld %>% filter(!is.na(UI)) %>% group_by(UI) %>% filter(n()>1) %>% View()
+# one duplicated UI 
+
+# 2-S2.0-85086380736 keep this but DE missing
+# 2-S2.0-85085604030 extract DE and fill above, then remove this record
+```
+
+```{r}
+scopus_nafld <- scopus_nafld %>% 
+  mutate(DE = case_when(UT == "2-S2.0-85086380736" ~ scopus_nafld %>% filter(UT == "2-S2.0-85085604030") %>% pull(DE),
+                                       .default = as.character(DE))) 
+
+```
+
+```{r}
+scopus_nafld %>% filter(UT == "2-S2.0-85086380736") %>% select(DE)
+```
+```{r}
+nrow(scopus_nafld)
+```
+
+
+```{r}
+# remove "2-S2.0-85085604030" from scopus
+nrow(scopus_nafld)
+
+scopus_nafld <- scopus_nafld %>%filter(UT != "2-S2.0-85085604030")
+
+nrow(scopus_nafld)
+```
+
+
+
+```{r}
+# check duplicates and NA at this point; scopus again
+scopus_nafld %>% filter(is.na(UI)) %>% nrow()
+scopus_nafld %>% filter(is.na(DI)) %>% nrow()
+scopus_nafld %>% filter(is.na(PM)) %>% nrow()
+#3209
+
+scopus_nafld %>% filter(is.na(DI) & is.na(PM)) %>% nrow()
+# 280
+
+scopus_nafld %>% filter(!is.na(UI)) %>% group_by(UI) %>% filter(n()>1) %>% nrow()
+scopus_nafld %>% filter(!is.na(DI)) %>% group_by(DI) %>% filter(n()>1) %>% nrow()
+scopus_nafld %>% filter(!is.na(PM)) %>% group_by(PM) %>% filter(n()>1) %>% nrow()
+```
+
+```{r}
+ui_na_wos <- wos_nafld %>% filter(is.na(UI) & !is.na(PM)) %>% pull(PM) 
+length(ui_na_wos)
+head(ui_na_wos)
+```
+
+
+```{r}
+# fill missing PMID in wos
+
+wos_na_pm2ui <- pubmed_nafld %>%
+  filter(!is.na(UI) & !is.na(PM)) %>%
+  filter(PM %in% ui_na_wos) %>%
+  select(UI, PM)
+
+wos_na_pm2ui
+#55
+```
+
+```{r}
+# update wos_nafld based on pubmed PM
+wos_nafld <- wos_nafld %>% rows_update(wos_na_pm2ui, by = "PM")
+```
+
+
+```{r}
+pm_na_wos <- wos_nafld %>% filter(!is.na(UI) & is.na(PM)) %>% pull(UI) 
+length(pm_na_wos)
+head(pm_na_wos)
+```
+
+```{r}
+wos_na_ui2pm <- pubmed_nafld %>%
+  filter(!is.na(UI) & !is.na(PM)) %>%
+  filter(UI %in% pm_na_wos ) %>%
+  select(UI, PM)
+
+wos_na_ui2pm
+#75
+```
+
+```{r}
+# update wos_nafld based on pubmed UI
+wos_nafld <- wos_nafld %>% rows_update(wos_na_ui2pm, by = "UI")
+```
+
+```{r}
+# scopus fill NA
+ui_na_scopus <- scopus_nafld %>% filter(is.na(UI) & !is.na(PM)) %>% pull(PM) 
+length(ui_na_scopus)
+head(ui_na_scopus)
+```
+
+
+```{r}
+# fill missing PMID in wos
+
+scopus_na_pm2ui <- pubmed_nafld %>%
+  filter(!is.na(UI) & !is.na(PM)) %>%
+  filter(PM %in% ui_na_scopus) %>%
+  select(UI, PM)
+
+scopus_na_pm2ui
+#55
+```
+
+```{r}
+# update wos_nafld based on pubmed PM
+scopus_nafld <- scopus_nafld %>% rows_update(scopus_na_pm2ui, by = "PM")
+```
+
+
+```{r}
+pm_na_scopus <- scopus_nafld %>% filter(!is.na(UI) & is.na(PM)) %>% pull(UI) 
+length(pm_na_scopus)
+head(pm_na_scopus)
+```
+
+```{r}
+scopus_na_ui2pm <- pubmed_nafld %>%
+  filter(!is.na(UI) & !is.na(PM)) %>%
+  filter(UI %in% pm_na_scopus ) %>%
+  select(UI, PM)
+
+scopus_na_ui2pm
+#2163
+```
+
+```{r}
+# update wos_nafld based on pubmed UI
+scopus_nafld <- scopus_nafld %>% rows_update(scopus_na_ui2pm, by = "UI")
+```
+
+
+```{r}
+# check duplicates and NA at this point; pubmed
+pubmed_nafld %>% filter(is.na(UI)) %>% nrow()
+pubmed_nafld %>% filter(is.na(DI)) %>% nrow()
+pubmed_nafld %>% filter(is.na(PM)) %>% nrow()
+
+pubmed_nafld %>% filter(is.na(DI) & is.na(PM)) %>% nrow()
+#0
+```
+
+```{r}
+# check duplicates and NA at this point; wos
+wos_nafld %>% filter(is.na(UI)) %>% nrow()
+wos_nafld %>% filter(is.na(DI)) %>% nrow()
+wos_nafld %>% filter(is.na(PM)) %>% nrow()
+
+wos_nafld %>% filter(is.na(DI) & is.na(PM)) %>% nrow()
+#0
+```
+
+```{r}
+# check duplicates and NA at this point; wos
+scopus_nafld %>% filter(is.na(UI)) %>% nrow()
+scopus_nafld %>% filter(is.na(DI)) %>% nrow()
+scopus_nafld %>% filter(is.na(PM)) %>% nrow()
+
+scopus_nafld %>% filter(is.na(DI) & is.na(PM)) %>% nrow()
+#0
+```
+
+```{r}
+# update scopus based on wos
+ui_na_scopus <- scopus_nafld %>% filter(is.na(UI) & !is.na(PM)) %>% pull(PM) 
+length(ui_na_scopus)
+head(ui_na_scopus)
+```
+
+
+```{r}
+# fill missing PMID in wos
+
+scopus_na_pm2ui <- wos_nafld %>%
+  filter(!is.na(UI) & !is.na(PM)) %>%
+  filter(PM %in% ui_na_scopus) %>%
+  select(UI, PM)
+
+scopus_na_pm2ui
+#55
+```
+
+```{r}
+# update wos_nafld based on pubmed PM
+scopus_nafld <- scopus_nafld %>% rows_update(scopus_na_pm2ui, by = "PM")
+```
+
+
+```{r}
+pm_na_scopus <- scopus_nafld %>% filter(!is.na(UI) & is.na(PM)) %>% pull(UI) 
+length(pm_na_scopus)
+head(pm_na_scopus)
+```
+
+```{r}
+scopus_na_ui2pm <- wos_nafld %>%
+  filter(!is.na(UI) & !is.na(PM)) %>%
+  filter(UI %in% pm_na_scopus ) %>%
+  select(UI, PM)
+
+scopus_na_ui2pm
+#75
+```
+
+```{r}
+# update wos_nafld based on pubmed UI
+scopus_nafld <- scopus_nafld %>% rows_update(scopus_na_ui2pm, by = "UI")
+```
+
+
+```{r}
+# update scopus based on wos
+ui_na_wos <- wos_nafld %>% filter(is.na(UI) & !is.na(PM)) %>% pull(PM) 
+length(ui_na_wos)
+head(ui_na_wos)
+```
+
+
+```{r}
+# fill missing PMID in wos
+
+wos_na_pm2ui <- scopus_nafld %>%
+  filter(!is.na(UI) & !is.na(PM)) %>%
+  filter(PM %in% ui_na_wos) %>%
+  select(UI, PM)
+
+wos_na_pm2ui 
+#0
+```
+
+```{r}
+pm_na_wos <- wos_nafld %>% filter(!is.na(UI) & is.na(PM)) %>% pull(UI) 
+length(pm_na_wos)
+head(pm_na_wos)
+```
+
+```{r}
+wos_na_ui2pm <- scopus_nafld %>%
+  filter(!is.na(UI) & !is.na(PM)) %>%
+  filter(UI %in% pm_na_wos ) %>%
+  select(UI, PM)
+
+wos_na_ui2pm
+#0
+```
+
+```{r}
+# update pubmed based on wos
+ui_na_pubmed <- pubmed_nafld %>% filter(is.na(UI) & !is.na(PM)) %>% pull(PM) 
+length(ui_na_pubmed)
+head(ui_na_pubmed)
+```
+
+```{r}
+# fill missing PMID in wos
+
+pubmed_na_pm2ui <- wos_nafld %>%
+  filter(!is.na(UI) & !is.na(PM)) %>%
+  filter(PM %in% ui_na_pubmed) %>%
+  select(UI, PM)
+
+pubmed_na_pm2ui 
+#0
+```
+
+```{r}
+pubmed_nafld <- pubmed_nafld %>% rows_update(pubmed_na_pm2ui, by = "PM")
+```
+
+
+```{r}
+# no PM so zero results
+pm_na_pubmed <- pubmed_nafld %>% filter(!is.na(UI) & is.na(PM)) %>% pull(UI) 
+length(pm_na_pubmed)
+head(pm_na_pubmed)
+```
+
+```{r}
+# update pubmed based on scopus
+ui_na_pubmed <- pubmed_nafld %>% filter(is.na(UI) & !is.na(PM)) %>% pull(PM) 
+length(ui_na_pubmed)
+head(ui_na_pubmed)
+```
+
+```{r}
+# fill missing PMID in wos
+
+pubmed_na_pm2ui <- scopus_nafld %>%
+  filter(!is.na(UI) & !is.na(PM)) %>%
+  filter(PM %in% ui_na_pubmed) %>%
+  select(UI, PM)
+
+pubmed_na_pm2ui 
+#0
+```
+
+```{r}
+pubmed_nafld <- pubmed_nafld %>% rows_update(pubmed_na_pm2ui, by = "PM")
+```
+
+
+```{r}
+# no PM so zero results
+pm_na_pubmed <- pubmed_nafld %>% filter(!is.na(UI) & is.na(PM)) %>% pull(UI) 
+length(pm_na_pubmed)
+head(pm_na_pubmed)
+```
+
+```{r}
+# check title, author, abstract, journal duplicates
+
+pubmed_nafld %>% group_by(TI, AU, AB, SO) %>% filter(n()>1) %>% nrow()
+pubmed_nafld %>% group_by(TI, AU, AB, SO) %>% filter(n()>1) %>% View()
+#4  these are different
+```
+
+```{r}
+wos_nafld %>% group_by(TI, AU, AB, SO) %>% filter(n()>1) %>% nrow()
+wos_nafld %>% group_by(TI, AU, AB, SO) %>% filter(n()>1) %>% View()
+# different
+```
+
+```{r}
+scopus_nafld %>% group_by(TI, AU, AB, SO) %>% filter(n()>1) %>% nrow()
+scopus_nafld %>% group_by(TI, AU, AB, SO) %>% filter(n()>1) %>% View()
+```
+
+```{r}
+scopus_nafld %>% group_by(TI, AU, AB, SO, PY) %>% filter(n()>1) %>% View()
+```
+
+```{r}
+scopus_nafld %>% group_by(TI, AU, AB, SO, PY) %>% filter(n()>1) %>% filter(is.na(UI)) %>% select(AU, TI, DE, UT)
+```
+
+```{r}
+nrow(scopus_nafld)
+```
+
+
+```{r}
+# 2 complete duplicates in scopus remove
+# remove 2-s2.0-85042332521
+# remove 2-S2.0-85092485731
+nrow(scopus_nafld)
+
+scopus_nafld <- scopus_nafld %>% filter(!UT %in% c("2-S2.0-85042332521",
+                                                   "2-S2.0-85092485731"))
+
+nrow(scopus_nafld)
+```
+
+
+```{r}
+# create df_ui for pubmed
+pubmed_nafld_ui <- pubmed_nafld %>%
+  mutate(UI = case_when(!is.na(UI) ~ UI,
+                        is.na(UI) & !is.na(PM) ~ PM,
+                        .default = NA))
+```
+
+
+```{r}
+pubmed_nafld_ui %>% filter(is.na(UI)) %>% nrow()
+#no NA for UI
+```
+
+```{r}
+pubmed_nafld_ui %>% group_by(TI, SR) %>% filter(n()>1) %>% nrow()
+pubmed_nafld_ui %>% group_by(TI, AU, SO) %>% filter(n()>1) %>% nrow()
+pubmed_nafld_ui %>% group_by(TI, AU, SO) %>% filter(n()>1) %>% View()
+# these are likely to be different -> no duplicate removal
+```
+
+```{r}
+pubmed_nafld_ui %>% filter(is.na(DI)) %>% count(J9) %>% arrange(desc(n))
+```
+
+
+
+```{r}
+wos_nafld %>% filter(is.na(UI) & is.na(PM)) %>% filter(!str_equal (SR, SR_FULL)) %>% View()
+```
+
+
+```{r}
+# create df_ui for wos
+wos_nafld_ui <- wos_nafld %>%
+  mutate(UI = case_when(!is.na(UI) ~ UI,
+                        is.na(UI) & !is.na(PM) ~ PM,
+                        .default = NA)) %>%
+  mutate(UI_na = case_when(!is.na(UI) ~ 0,
+                           .default = 1))
+```
+
+```{r}
+wos_nafld_ui %>% filter(UI_na == 1) %>% nrow()
+```
+
+```{r}
+wos_nafld_ui %>% filter(UI_na == 1) %>% group_by(TI) %>% filter(n()>1) %>% View() 
+```
+
+```{r}
+wos_nafld_ui %>% filter(UI_na == 1) %>% group_by(SR_FULL) %>% filter(n()>1) %>% View() 
+```
+
+```{r}
+wos_nafld_ui %>% filter(UI_na == 1) %>% group_by(TI) %>% filter(n()>1) %>% select(UT, SR, SR_FULL)
+# these two are outside official search period
+# assign temporaty SR, will be removed after merge
+```
+
+```{r}
+wos_nafld_ui <- wos_nafld_ui %>% 
+  mutate(UI = case_when(UT %in% c("WOS:000539147700043",
+                                  "WOS:000354561800008") ~  SR,
+                        .default = as.character(UI)))
+```
+
+```{r}
+wos_nafld_ui %>% filter(is.na(UI)) %>% group_by(TI) %>% filter(n()>1) %>% select(UT, SR, SR_FULL)
+# zero
+```
+
+
+```{r}
+wos_nafld_ui %>% filter(is.na(DI)) %>% count(J9) %>% arrange(desc(n))
+# zero
+```
+
+```{r}
+# assign TI as UI for the rest
+wos_nafld_ui <- wos_nafld_ui %>% mutate(UI = case_when(is.na(UI) ~ TI,
+                                       .default = as.character(UI)))
+```
+
+```{r}
+wos_nafld_ui %>% filter(is.na(UI)) %>% nrow()
+# zero
+```
+
+```{r}
+# assign UI to scopus
+
+scopus_nafld_ui <- scopus_nafld %>%
+  mutate(UI = case_when(!is.na(UI) ~ UI,
+                        is.na(UI) & !is.na(PM) ~ PM,
+                        .default = NA)) %>%
+  mutate(UI_na = case_when(!is.na(UI) ~ 0,
+                           .default = 1))
+```
+
+```{r}
+scopus_nafld_ui %>% filter(is.na(UI)) %>% group_by(TI, SO) %>% filter(n()>1) %>% View()
+# no true duplicates here
+```
+
+
+
+```{r}
+scopus_nafld_ui %>% group_by(TI, AU, AB, SO) %>% filter(n()>1) %>% View()
+```
+
+```{r}
+scopus_nafld_ui %>% filter(!is.na(UI)) %>% group_by(TI) %>% filter(n()>1) %>% View()
+# no title duplicates
+```
+
+```{r}
+# assign title as UI when UI is NA
+scopus_nafld_ui <- scopus_nafld_ui %>% mutate(UI = case_when(is.na(UI) ~ TI,
+                                                             .default = as.character(UI)))
+```
+
+```{r}
+scopus_nafld_ui %>% filter(is.na(UI)) %>% group_by(UI) %>% filter(n()>1) %>% View()
+```
+
+```{r}
+scopus_nafld_ui %>% group_by(UI) %>% filter(n()>1) %>% View()
+```
+
+
+
+```{r}
+pubmed_nafld %>% group_by(TI) %>% filter(n()>1) %>% View()
+```
+
+
+```{r}
+#pubmed_nafld %>% group_by(SO2) %>% filter(n()>1) %>% View()
+wos_nafld %>% group_by(TI) %>% filter(n()>1) %>% View()
+#scopus_nafld %>% group_by(TI) %>% filter(n()>1) %>% nrow()
+```
+
+
+
+```{r}
+scopus_nafld_ui %>% filter(is.na(UI)) %>% nrow()
+```
+
+```{r}
+nrow(pubmed_nafld_ui)
+
+nrow(wos_nafld_ui)
+
+nrow(scopus_nafld_ui)
+```
+
+```{r}
+# cleaning finished  save rds
+pubmed_nafld_ui %>% saveRDS("rds_nafld/pubmed_nafld_ui")
+wos_nafld_ui %>% saveRDS("rds_nafld/wos_nafld_ui")
+scopus_nafld_ui %>% saveRDS("rds_nafld/scopus_nafld_ui")
+```

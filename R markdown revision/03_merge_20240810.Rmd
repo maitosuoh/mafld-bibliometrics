@@ -1,0 +1,172 @@
+---
+title: "MAFLD"
+output: html_document
+date: "2026-06-17"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(bibliometrix)
+library(tidyverse)
+```
+
+```{r}
+# load cleaning
+load(file="rdata/02_cleaning.RData")
+```
+
+
+```{r}
+# join datasets by "UI"
+df_bx <- pubmed_mafld_ui %>% 
+  select(AU, AF, TI, AB, SO, J9, PY, DT, C1, DE, AU_UN, DB, PM, DI, UI) %>%
+  full_join(wos_mafld_ui %>% select(AU, AF, TI, AB, SO, J9, PY, DT, C1, DE, AU_UN, TC, CR, DB, DI, PM, UI),
+            by = "UI",
+            suffix = c("_p", "_w")) %>%
+  full_join(scopus_mafld_ui %>% select(AU, AF, TI, AB, SO, J9, PY, DT, C1, DE, AU_UN, TC, CR, DB, DI, PM, UI),
+            by = "UI",
+            suffix = c("_w","_s")) %>% 
+  rename(all_of(c(AU_s = "AU", AF_s = "AF", TI_s = "TI", AB_s = "AB", SO_s = "SO", J9_s = "J9", PY_s = "PY", DT_s = "DT", C1_s = "C1", DB_s = "DB", DE_s = "DE", AU_UN_s = "AU_UN", DI_s = "DI", PM_s = "PM")))
+```
+
+
+```{r}
+# fill DI and PM based on pubmed, wos, and scopus
+df_bx <- df_bx %>% 
+  mutate(DI = case_when(!is.na(DI_p) ~ DI_p,
+                                is.na(DI_p) & !is.na(DI_w) ~ DI_w,
+                                is.na(DI_p) & is.na(DI_w) & !is.na(DI_s) ~ DI_s,
+                                .default = NA)) %>%
+  mutate(PM = case_when(!is.na(PM_p) ~ PM_p,
+                                is.na(PM_p) & !is.na(PM_w) ~ PM_w,
+                                is.na(PM_p) & is.na(PM_w) & !is.na(PM_s) ~ PM_s,
+                                .default = NA))
+```
+
+```{r}
+# format title in pubmed
+# remove . at the end of title in pubmed
+df_bx <- df_bx %>% mutate(TI_p = str_remove(TI_p, "\\.$"))
+```
+
+```{r}
+# change “ ” to " "
+# change ‘ ’ to ' '
+
+replace_quotes <- function(x){
+  x %>%
+    str_replace_all("“|”", '"') %>%
+    str_replace_all("‘|’", "'")
+  }
+```
+
+```{r}
+# apply replace quotes for title and reference
+
+df_bx<- df_bx %>%
+  mutate(across(c(TI_p, TI_s, TI_w, CR_s, CR_w), replace_quotes))
+```
+
+```{r}
+# format title in wos
+# remove symbols for super/subscript  <xxx> 
+df_bx <- df_bx %>%
+  mutate(TI_w = str_remove_all(TI_w, "<[^>]*>"))
+```
+
+```{r}
+# format title in scopus
+# change asterisk (∗) (U+2217) operator to asterisk (*) (U+002A) in scopus
+df_bx <- df_bx %>% mutate(TI_s = str_replace_all(TI_s, "\\∗", "\\*")) %>%
+  mutate(CR_s = str_replace_all(CR_s, "\\∗", "\\*"))
+```
+
+```{r}
+# fill title based on pubmed, wos, scopus
+df_bx <- df_bx %>% 
+  mutate(TI = case_when(!is.na(TI_p) ~ TI_p,
+                        is.na(TI_p) & !is.na(TI_w) ~ TI_w,
+                        is.na(TI_p) & is.na(TI_w) & !is.na(TI_s) ~ TI_s,
+                        .default = NA))
+```
+
+```{r}
+#duplicates by PM
+df_bx %>% filter(!is.na(PM)) %>% group_by(PM) %>% filter(n()>1) %>% pull(PM) %>% unique()
+
+#"35306559"
+# pubmed had no DI
+```
+
+```{r}
+# check duplicates by PM
+df_bx %>% group_by(PM) %>% filter(!is.na(PM) & n()>1) %>% View()
+# 35306559
+```
+
+```{r}
+# check duplicates by title
+df_bx %>% group_by(TI) %>% filter(n()>1) %>% View()
+
+# true duplicates: UI 35154609 35306559
+# fill information to the corresponding rows
+```
+
+```{r}
+# create dataframe for row update
+# UI 35154609, DI 10.22037/ghfbb.vi.2447
+# UI 35306559, DI 10.15403/jgld-4148
+ti_pubmed_dup <- df_bx %>% 
+  filter(UI %in% c("35154609", "35306559")) %>%
+  select(ends_with("_p"), UI) %>%
+  mutate(UI = case_when(UI  == "35154609" ~ "10.22037/ghfbb.vi.2447",
+                        UI == "35306559" ~ "10.15403/jgld-4148"))
+```
+
+```{r}
+# updating necessary information from duplicates and remove them
+df_bx <- df_bx %>%
+  rows_update(tibble(ti_pubmed_dup), by = "UI") %>%
+  mutate(PM = case_when(UI == "10.22037/ghfbb.vi.2447" ~ PM_p,
+                        .default = as.character(PM))) %>%
+  filter(!UI %in% c("35154609", "35306559"))
+
+# 2 removed as duplicates after merge
+```
+
+```{r}
+# old and new versions of the same publication
+# correct information but duplicated
+
+# 36720362 10.1016/j.ad.2023.01.004 WOS:001029228000001 pubmed, wos
+# 37068635 10.1016/j.ad.2023.04.013 WOS:001042202500001 scopus, wos
+
+# Redirection Notice (Pubmed)
+# PMID: 37068635 was deleted because it is a duplicate of PMID: 36720362
+
+# extract scopus information from 37068635 10.1016/j.ad.2023.04.013
+
+ti_scopus_dup <- df_bx %>% 
+  filter(UI == "10.1016/j.ad.2023.04.013") %>%
+  select(ends_with("_s"), UI) %>%
+  mutate(UI = case_when(UI == "10.1016/j.ad.2023.04.013" ~ "10.1016/j.ad.2023.01.004"))
+```
+
+```{r}
+# fill information of scopus (10.1016/j.ad.2023.04.013) in (10.1016/j.ad.2023.01.004)
+# change DI_s from 10.1016/j.ad.2023.04.013 to 10.1016/j.ad.2023.01.004
+# remove 10.1016/j.ad.2023.04.013
+df_bx <- df_bx %>%
+  rows_update(tibble(ti_scopus_dup), by = "UI") %>%
+  mutate(DI_s = case_when(DI_s == "10.1016/j.ad.2023.04.013" ~ "10.1016/j.ad.2023.01.004",
+                   .default = as.character(DI_s))) %>%
+  filter(UI != "10.1016/j.ad.2023.04.013")
+```
+
+```{r}
+# save workspace
+save.image("rdata/03_merge.RData")
+```
