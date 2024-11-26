@@ -1,6 +1,6 @@
 # Bibliometric analysis of MAFLD literature
 This repository contains the R code used for the bibliometric analysis of metabolic (dysfunction)-associated fatty liver disease (MAFLD).  
-This study aimed to provide an overview of the research in MAFLD from 2020 to late 2023 using publication metrics.
+This study aimed to provide an overview of the research in MAFLD from 2020 to late 2023 using publication metrics.  
 The paper is published in Hepatology International (https://link.springer.com/article/10.1007/s12072-024-10731-0).
 
 ## Contents
