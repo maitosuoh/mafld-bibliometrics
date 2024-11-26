@@ -10,7 +10,7 @@ These original files were not deposited in this repository due to potential copy
 
 ### R environment
 The exported files from literature databases were loaded into R environment using bibliometrix (https://www.bibliometrix.org/home/).  
-The RStudio workspace after this step (`01_import.RData`) was uploaded in this repository for reproducibility.
+The seriarised RDS files and RStudio workspace after this step (`01_import.RData`) was uploaded in this repository for reproducibility.
 
 ### R code
 The analysis was performed by running the R codes in the following order with R Studio.
